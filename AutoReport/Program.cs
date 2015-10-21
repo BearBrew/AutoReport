@@ -62,6 +62,8 @@ namespace AutoReport
         /// Configuration item to enable full debug
         /// </summary>
         public static bool ConfigDebug;
+        public static string ReportFile;
+        public static string LogFile;
 
         // Global level structures
         public struct Initiative
@@ -326,117 +328,137 @@ namespace AutoReport
                 return;
             }
 
-            LogOutput("Started processing at " + DateTime.Now.ToLongTimeString() + " on " + DateTime.Now.ToLongDateString(), "Main");
+            LogOutput("Started processing at " + DateTime.Now.ToLongTimeString() + " on " + DateTime.Now.ToLongDateString(), "Main", false);
             DateTime dtStartTime = DateTime.Now;
             // Create the Rally API object
+            LogOutput("Creating reference to RallyAPI...", "Main",true);
             RallyAPI = new RallyRestApi();
 
             // Login to Rally
+            LogOutput("Starting connection to Rally...", "Main", true);
             // By leaving the server identifier off, it uses the default server
             try
             {
                 RallyAPI.Authenticate(ConfigRallyUID, ConfigRallyPWD);
+                LogOutput("Response from RallyAPI.Authenticate: " + RallyAPI.AuthenticationState.ToString(), "Main", true);
                 if (RallyAPI.AuthenticationState.ToString() != "Authenticated")
                 {
                     // We did not actually connect
-                    LogOutput("Unable to connect to Rally and establish session.  Application will terminate.", "Main");
+                    LogOutput("Unable to connect to Rally and establish session.  Application will terminate.", "Main",false);
                     return;
                 }
                 else
                 {
                     if (RallyAPI.ConnectionInfo.UserName == null)
                     {
-                        LogOutput("Unable to authenticate with Rally.  Application will terminate.", "Main");
+                        LogOutput("RallyAPI.ConnectionInfo: " + RallyAPI.ConnectionInfo.ToString(), "Main", false);
+                        LogOutput("Unable to authenticate with Rally.  Application will terminate.", "Main", false);
                         return;
                     }
                     else
                     {
-                        LogOutput("Connected to Rally...", "Main");
+                        LogOutput("Connected to Rally as user " + RallyAPI.ConnectionInfo.UserName, "Main", true);
                     }
                 }
             }
             catch (Exception ex)
             {
-                LogOutput("Error Connecting to Rally: " + ex.Message, "Main");
-                LogOutput("Rally Connection State: " + RallyAPI.AuthenticationState.ToString(), "Main");
+                LogOutput("Error Connecting to Rally: " + ex.Message, "Main", false);
+                LogOutput("Rally Authentication State: " + RallyAPI.AuthenticationState.ToString() +
+                    "Rally Connection Info: " + RallyAPI.ConnectionInfo.ToString(), "Main", false);
             }
 
             // Grab the active Initiatives we want to report on
-            LogOutput("Getting all Initiatives...", "Main");
+            LogOutput("Getting all Initiatives...", "Main", false);
             List<Initiative> InitiativeList = new List<Initiative>();
+            LogOutput("Calling 'GetInitiativeList'...", "Main", true);
             InitiativeList = GetInitiativeList();
+            LogOutput("Done with 'GetInitiativeList'", "Main", true);
             if (InitiativeList.Count == 0)
             {
                 // Could not get the Initiatives...or nothing to report on, so stop
-                LogOutput("Unable to open Initiative list or no Initiatives to report on.  Application will terminate.", "Main");
+                LogOutput("Unable to open Initiative list or no Initiatives to report on.  Application will terminate.", "Main", false);
                 InitiativeList.Clear();
                 RallyAPI.Logout();  // Disconnect from Rally
                 return;             // End Program
             }
-            LogOutput("Retrieved " + InitiativeList.Count + " Initiatives to report on", "Main");
+            LogOutput("Retrieved " + InitiativeList.Count + " Initiatives to report on", "Main", false);
 
             // Now iterate through the initiatives and get all the Features or "Projects"
-            LogOutput("Getting all Projects for the Initiatives...", "Main");
+            LogOutput("Getting all Projects for the Initiatives...", "Main", false);
             BasicProjectList = new List<Project>();
+            LogOutput("Looping for each Initiative...", "Main", true);
             foreach (Initiative init in InitiativeList)
             {
                 // Get the project list for the current initiative ONLY
                 List<Project> ProjectList = new List<Project>();
+                LogOutput("Calling 'GetProjectsForInitiative' with " + init.Name.Trim() + "...", "Main", true);
                 ProjectList = GetProjectsForInitiative(init.Name.Trim());
+                LogOutput("Done with 'GetProjectsForInitiative' for " + init.Name.Trim(), "Main", true);
 
                 // Append this list to the FULL list
+                LogOutput("Appending " + ProjectList.Count + " projects to object 'BasicProjectList'", "Main", true);
                 BasicProjectList.AddRange(ProjectList);
             }
-            LogOutput("Retrieved " + BasicProjectList.Count + " Projects", "Main");
+            LogOutput("Retrieved " + BasicProjectList.Count + " Projects total", "Main", false);
 
             // We need to loop through the project list now and for each project
             // we need to get all the epics.  Then with each epic, we recursively
             // get all user stories
-            LogOutput("Getting all User Stories for all projects...", "Main");
+            LogOutput("Getting all User Stories for all projects...", "Main", false);
             // Initialize a new list of projects.  This will become the full list including stories
             // and defects
             CompleteProjectList = new List<Project>();
+            LogOutput("Looping for each Project...", "Main", true);
             foreach (Project proj in BasicProjectList)
             {
                 // Get all the epics for this project
-                LogOutput("~+~+~+~+~+~+~+~+~+~+~+~+~+~+~+~+~+~+", "Main");
-                LogOutput("Working on Project " + proj.Name + "...", "Main");
+                LogOutput("~+~+~+~+~+~+~+~+~+~+~+~+~+~+~+~+~+~+", "Main", true);
+                LogOutput("Calling 'GetEpicsForProject' with " + proj.Name.Trim() + "...", "Main", true);
                 List<Epic> EpicList = new List<Epic>();
                 EpicList = GetEpicsForProject(proj.FormattedID.Trim());
+                LogOutput("Done with 'GetEpicsForProject' for " + proj.Name.Trim(), "Main", true);
 
                 // Now go through each of the Epics for the current project
                 // and recurse through to get all final-level user stories
-                LogOutput("Getting all User Stories for " + proj.Name + "...", "Main");
+                LogOutput("Getting all User Stories for " + proj.Name + "...", "Main", true);
                 BasicStoryList = new List<UserStory>();
+                LogOutput("Looping for each Epic...", "Main", true);
                 foreach (Epic epic in EpicList)
                 {
                     List<UserStory> StoryList = new List<UserStory>();
+                    LogOutput("Calling 'GetUserStoriesPerParent' with " + epic.FormattedID.Trim() + " as Root Parent...", "Main", true);
                     StoryList = GetUserStoriesPerParent(epic.FormattedID.Trim(), true);
+                    LogOutput("Done with 'GetUserStoriesPerParent' for " + epic.FormattedID.Trim(), "Main", true);
                     BasicStoryList.AddRange(StoryList);
                 }
                 // We don't need the Epics anymore so clean up
                 EpicList.Clear();
-                LogOutput("Retrieved " + BasicStoryList.Count + " User Stories", "Main");
+                LogOutput("Retrieved " + BasicStoryList.Count + " User Stories for " + proj.Name, "Main", false);
 
                 // Get any defects there may be for the User Stories
-                LogOutput("Getting all Defects for " + proj.Name + "...", "Main");
+                LogOutput("Getting all Defects for " + proj.Name + "...", "Main", false);
                 BasicDefectList = new List<Defect>();
+                LogOutput("Looping for each Story...", "Main", true);
                 foreach (UserStory story in BasicStoryList)
                 {
                     List<Defect> DefectList = new List<Defect>();
                     // Defects will always be attached to a User Story
+                    LogOutput("Calling 'GetDefectsForStory' with " + story.Name + "...", "Main", true);
                     DefectList = GetDefectsForStory(story);
+                    LogOutput("Done with 'GetDefectsForStory' for " + story.Name, "Main", true);
                     // If there are any defects, add them to the list
                     if (DefectList.Count > 0)
                     {
+                        LogOutput("Appending " + DefectList.Count + " defects to object 'BasicDefectList'", "Main", true);
                         BasicDefectList.AddRange(DefectList);
                     }
                 }
-                LogOutput("Retrieved " + BasicDefectList.Count + " Defects", "Main");
 
                 // At this point we have the FULL list of User Stories/Defects for the current
                 // project.  We now create a "new" project with the same properties, but this time
                 // we are able to store the User Stories and Defects.
+                LogOutput("Creating new project object and populating with full information...", "Main", true);
                 Project newproject = new Project();
                 newproject.Description = proj.Description;
                 newproject.Expedite = proj.Expedite;
@@ -452,21 +474,28 @@ namespace AutoReport
                 newproject.StatusUpdate = proj.StatusUpdate;
                 newproject.UserStories = BasicStoryList;
                 newproject.Defects = BasicDefectList;
+                LogOutput("Appending new project object to object 'CompleteProjectList'", "Main", true);
                 CompleteProjectList.Add(newproject);
             }
+            LogOutput("Done looping through all projects", "Main", false);
+            LogOutput("Appending new project object to object 'CompleteProjectList'", "Main", true);
 
             // We now have a full list of all projects with all complete information so
             // at this point we need to total the Actuals for each project
             AllProjectInfo = new List<Project>();
+            LogOutput("Calling 'CalculateTotals' with " + CompleteProjectList.Count + " complete projects...", "Main", true);
             AllProjectInfo = CalculateTotals(CompleteProjectList);
+            LogOutput("Done with 'CalculateTotals'", "Main", true);
 
             // Now create the final report
+            LogOutput("Calling 'CreateReport'...", "Main", true);
             CreateReport(AllProjectInfo);
+            LogOutput("Done with 'CreateReport'...", "Main", true);
 
             //CompleteProjectList[0].UserStories[0].Tasks[0].Actual
             DateTime dtEndTime = DateTime.Now;
             string strTotSeconds = dtEndTime.Subtract(dtStartTime).TotalSeconds.ToString();
-            LogOutput("Completed processing at " + DateTime.Now.ToLongTimeString() + " on " + DateTime.Now.ToLongDateString() + " - Total Processing Time: " + strTotSeconds + " seconds", "Main");
+            LogOutput("Completed processing at " + DateTime.Now.ToLongTimeString() + " on " + DateTime.Now.ToLongDateString() + " - Total Processing Time: " + strTotSeconds + " seconds", "Main", false);
 
         }
 
@@ -482,19 +511,27 @@ namespace AutoReport
             string[] Initiatives = new string[0];
 
             // Full path and filename to read the Initiative list from
+            LogOutput("Getting list of initiatives from 'ConfigurationManager'...", "GetInitiativeList", true);
             string strInitiativeList = ConfigurationManager.AppSettings["ReportList"];
+            LogOutput("Full configured list is: " + strInitiativeList, "GetInitiativeList", true);
             System.Text.RegularExpressions.Regex myReg = new System.Text.RegularExpressions.Regex(",");
             Initiatives = myReg.Split(strInitiativeList);
+            LogOutput("Looping for each initiative to get full information...", "GetInitiativeList", false);
             foreach (string stringpart in Initiatives)
             {
                 // Grab all Information for the given initiative
+                LogOutput("Using RallyAPI to request information for " + stringpart + "...", "GetInitiativeList", true);
+                LogOutput("Building Rally Request...", "GetInitiativeList", true);
                 Request rallyRequest = new Request("PortfolioItem/Initiative");
                 rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Owner", "PlannedStartDate", "PlannedEndDate", "Description", "State" };
                 rallyRequest.Query = new Query("FormattedID", Query.Operator.Equals, stringpart.Trim());
+                LogOutput("Running Rally Query request...", "GetInitiativeList", true);
                 QueryResult rallyResult = RallyAPI.Query(rallyRequest);
+                LogOutput("Looping through Query result...", "GetInitiativeList", true);
                 foreach (var result in rallyResult.Results)
                 {
                     // Create and populate the Initiative object
+                    LogOutput("Creating new Initiative object and saving...", "GetInitiativeList", true);
                     Initiative initiative = new Initiative();
                     initiative.FormattedID = RationalizeData(result["FormattedID"]);
                     initiative.Name = RationalizeData(result["Name"]);
@@ -503,9 +540,11 @@ namespace AutoReport
                     initiative.PlannedEndDate = Convert.ToDateTime(result["PlannedEndDate"]);
                     initiative.Description = RationalizeData(result["Description"]);
                     initiative.State = RationalizeData(result["State"]);
+                    LogOutput("Appending new initiative object to return list...", "GetInitiativeList", true);
                     listReturn.Add(initiative);
                 }
             }
+            LogOutput("Completed processing all initiatives, returning list", "GetInitiativeList", true);
 
             return listReturn;
         }
@@ -655,7 +694,7 @@ namespace AutoReport
                 story.PlanEstimate = RationalizeData(result["PlanEstimate"], true);
                 story.Tasks = GetTasksForUserStory(story.FormattedID);
                 listReturn.Add(story);
-                LogOutput(story.FormattedID + " " + story.Name);
+                LogOutput(story.FormattedID + " " + story.Name, "GetUserStoriesPerParent");
 
                 // Check for children.  If there are children, then we need to drill down
                 // through all children to retrieve the full list of stories
@@ -1043,10 +1082,21 @@ namespace AutoReport
         /// Sends processing information to output (screen, file, etc)
         /// </summary>
         /// <param name="Message">Text to output</param>
-        private static void LogOutput(string Message, string Method)
+        /// <param name="Method">Current executing method</param>
+        /// <param name="ExtendedLogInfo">Indicates if this extended Debug info</param>
+        private static void LogOutput(string Message, string Method, bool ExtendedLogInfo)
         {
 
+
+
+            // Write the string to a file.
+            System.IO.StreamWriter reportfile = new System.IO.StreamWriter(LogFile);
+
             Console.WriteLine(Message);
+            reportfile.WriteLine(Message);
+
+            reportfile.Close();
+            reportfile.Dispose();
 
         }
 
@@ -1059,12 +1109,8 @@ namespace AutoReport
 
             string strOutLine = "";
 
-            // Full path and filename to read the Initiative list from
-            string strOutputReport = AppDomain.CurrentDomain.BaseDirectory + "Output.txt";
-            //string outputline = "First line.\r\nSecond line.\r\nThird line.";
-
             // Write the string to a file.
-            System.IO.StreamWriter reportfile = new System.IO.StreamWriter(strOutputReport);
+            System.IO.StreamWriter reportfile = new System.IO.StreamWriter(ReportFile);
 
             foreach (Project proj in projects)
             {
@@ -1079,6 +1125,7 @@ namespace AutoReport
                 reportfile.WriteLine(strOutLine);
             }
             reportfile.Close();
+            reportfile.Dispose();
 
         }
 
@@ -1218,6 +1265,9 @@ namespace AutoReport
                 Console.WriteLine("Unable to read configuration settings: " + ex.Message);
                 return false;
             }
+
+            ReportFile = ConfigReportPath + "\\" + System.DateTime.Now.ToString("ddMMMyyyy") + "-" + System.DateTime.Now.ToString("HHmm") + "_Report.txt";
+            LogFile = ConfigLogPath + "\\" + System.DateTime.Now.ToString("ddMMMyyyy") + "-" + System.DateTime.Now.ToString("HHmm") + "_Log.txt";
 
             return true;
 
