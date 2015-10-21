@@ -2,9 +2,6 @@
 <ClassDiagram MajorVersion="1" MinorVersion="1">
   <Class Name="AutoReport.Program">
     <Position X="0.5" Y="0.75" Width="2.5" />
-    <Compartments>
-      <Compartment Name="Nested Types" Collapsed="false" />
-    </Compartments>
     <NestedTypes>
       <Struct Name="AutoReport.Program.Initiative" Collapsed="true">
         <TypeIdentifier>
@@ -27,18 +24,29 @@
         </TypeIdentifier>
       </Struct>
       <Struct Name="AutoReport.Program.Task">
+        <Compartments>
+          <Compartment Name="Fields" Collapsed="true" />
+        </Compartments>
         <TypeIdentifier>
           <NewMemberFileName>Program.cs</NewMemberFileName>
         </TypeIdentifier>
       </Struct>
       <Struct Name="AutoReport.Program.Defect">
+        <Compartments>
+          <Compartment Name="Fields" Collapsed="true" />
+        </Compartments>
         <TypeIdentifier>
           <NewMemberFileName>Program.cs</NewMemberFileName>
         </TypeIdentifier>
       </Struct>
+      <Enum Name="AutoReport.Program.ProjectTotal" Collapsed="true">
+        <TypeIdentifier>
+          <NewMemberFileName>Program.cs</NewMemberFileName>
+        </TypeIdentifier>
+      </Enum>
     </NestedTypes>
     <TypeIdentifier>
-      <HashCode>AAAAAgAAAAAAAAwAAEAAAABIAAAAgQAAAAAABAAIAAA=</HashCode>
+      <HashCode>AQkggAAEAAAEAAwACEAAEADIBAAAwSAQAAAABAAIAAA=</HashCode>
       <FileName>Program.cs</FileName>
     </TypeIdentifier>
   </Class>

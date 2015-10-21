@@ -10,6 +10,7 @@ using Rally.RestApi.Connection;
 using Rally.RestApi.Exceptions;
 using Rally.RestApi.Json;
 using Rally.RestApi.Response;
+using System.Configuration;
 
 namespace AutoReport
 {
@@ -41,6 +42,26 @@ namespace AutoReport
         /// Holds the final list of all projects and calculated totals
         /// </summary>
         public static List<Project> AllProjectInfo;
+        /// <summary>
+        /// Configuration item for Rally UserID
+        /// </summary>
+        public static string ConfigRallyUID;
+        /// <summary>
+        /// Configuration item for Rally Password
+        /// </summary>
+        public static string ConfigRallyPWD;
+        /// <summary>
+        /// Configuration item for UNC Logfile Location
+        /// </summary>
+        public static string ConfigLogPath;
+        /// <summary>
+        /// Configuration item for UNC Report Location
+        /// </summary>
+        public static string ConfigReportPath;
+        /// <summary>
+        /// Configuration item to enable full debug
+        /// </summary>
+        public static bool ConfigDebug;
 
         // Global level structures
         public struct Initiative
@@ -298,35 +319,64 @@ namespace AutoReport
         static void Main(string[] args)
         {
 
-            // Login credentials for Rally
-            string strRallyUID = "james.drager@vce.com";
-            string strRallyPWD = "01DeadCat";
+            // Get the configuration information from config file
+            if (!GetConfigSettings())
+            {
+                // If we can't get the configuration settings, we can't even log anything, so just terminate
+                return;
+            }
 
-            DisplayOutput("Started processing at " + DateTime.Now.ToLongTimeString() + " on " + DateTime.Now.ToLongDateString());
+            LogOutput("Started processing at " + DateTime.Now.ToLongTimeString() + " on " + DateTime.Now.ToLongDateString(), "Main");
             DateTime dtStartTime = DateTime.Now;
             // Create the Rally API object
             RallyAPI = new RallyRestApi();
 
             // Login to Rally
             // By leaving the server identifier off, it uses the default server
-            RallyAPI.Authenticate(strRallyUID, strRallyPWD);
-            DisplayOutput("Connected to Rally...");
+            try
+            {
+                RallyAPI.Authenticate(ConfigRallyUID, ConfigRallyPWD);
+                if (RallyAPI.AuthenticationState.ToString() != "Authenticated")
+                {
+                    // We did not actually connect
+                    LogOutput("Unable to connect to Rally and establish session.  Application will terminate.", "Main");
+                    return;
+                }
+                else
+                {
+                    if (RallyAPI.ConnectionInfo.UserName == null)
+                    {
+                        LogOutput("Unable to authenticate with Rally.  Application will terminate.", "Main");
+                        return;
+                    }
+                    else
+                    {
+                        LogOutput("Connected to Rally...", "Main");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogOutput("Error Connecting to Rally: " + ex.Message, "Main");
+                LogOutput("Rally Connection State: " + RallyAPI.AuthenticationState.ToString(), "Main");
+            }
 
             // Grab the active Initiatives we want to report on
-            DisplayOutput("Getting all Initiatives...");
+            LogOutput("Getting all Initiatives...", "Main");
             List<Initiative> InitiativeList = new List<Initiative>();
             InitiativeList = GetInitiativeList();
             if (InitiativeList.Count == 0)
             {
                 // Could not get the Initiatives...or nothing to report on, so stop
-                DisplayOutput("Unable to open Initiative list or no Initiatives to report on.  Application will terminate.");
-                RallyAPI.Logout();
-                return;
+                LogOutput("Unable to open Initiative list or no Initiatives to report on.  Application will terminate.", "Main");
+                InitiativeList.Clear();
+                RallyAPI.Logout();  // Disconnect from Rally
+                return;             // End Program
             }
-            DisplayOutput("Retrieved " + InitiativeList.Count + " Initiatives to report on");
+            LogOutput("Retrieved " + InitiativeList.Count + " Initiatives to report on", "Main");
 
             // Now iterate through the initiatives and get all the Features or "Projects"
-            DisplayOutput("Getting all Projects for the Initiatives...");
+            LogOutput("Getting all Projects for the Initiatives...", "Main");
             BasicProjectList = new List<Project>();
             foreach (Initiative init in InitiativeList)
             {
@@ -337,26 +387,26 @@ namespace AutoReport
                 // Append this list to the FULL list
                 BasicProjectList.AddRange(ProjectList);
             }
-            DisplayOutput("Retrieved " + BasicProjectList.Count + " Projects");
+            LogOutput("Retrieved " + BasicProjectList.Count + " Projects", "Main");
 
             // We need to loop through the project list now and for each project
             // we need to get all the epics.  Then with each epic, we recursively
             // get all user stories
-            DisplayOutput("Getting all User Stories for all projects...");
+            LogOutput("Getting all User Stories for all projects...", "Main");
             // Initialize a new list of projects.  This will become the full list including stories
             // and defects
             CompleteProjectList = new List<Project>();
             foreach (Project proj in BasicProjectList)
             {
                 // Get all the epics for this project
-                DisplayOutput("~+~+~+~+~+~+~+~+~+~+~+~+~+~+~+~+~+~+");
-                DisplayOutput("Working on Project " + proj.Name + "...");
+                LogOutput("~+~+~+~+~+~+~+~+~+~+~+~+~+~+~+~+~+~+", "Main");
+                LogOutput("Working on Project " + proj.Name + "...", "Main");
                 List<Epic> EpicList = new List<Epic>();
                 EpicList = GetEpicsForProject(proj.FormattedID.Trim());
 
                 // Now go through each of the Epics for the current project
                 // and recurse through to get all final-level user stories
-                DisplayOutput("Getting all User Stories for " + proj.Name + "...");
+                LogOutput("Getting all User Stories for " + proj.Name + "...", "Main");
                 BasicStoryList = new List<UserStory>();
                 foreach (Epic epic in EpicList)
                 {
@@ -364,21 +414,25 @@ namespace AutoReport
                     StoryList = GetUserStoriesPerParent(epic.FormattedID.Trim(), true);
                     BasicStoryList.AddRange(StoryList);
                 }
-                DisplayOutput("Retrieved " + BasicStoryList.Count + " User Stories");
+                // We don't need the Epics anymore so clean up
+                EpicList.Clear();
+                LogOutput("Retrieved " + BasicStoryList.Count + " User Stories", "Main");
 
                 // Get any defects there may be for the User Stories
-                DisplayOutput("Getting all Defects for " + proj.Name + "...");
+                LogOutput("Getting all Defects for " + proj.Name + "...", "Main");
                 BasicDefectList = new List<Defect>();
                 foreach (UserStory story in BasicStoryList)
                 {
                     List<Defect> DefectList = new List<Defect>();
+                    // Defects will always be attached to a User Story
                     DefectList = GetDefectsForStory(story);
+                    // If there are any defects, add them to the list
                     if (DefectList.Count > 0)
                     {
                         BasicDefectList.AddRange(DefectList);
                     }
                 }
-                DisplayOutput("Retrieved " + BasicDefectList.Count + " Defects");
+                LogOutput("Retrieved " + BasicDefectList.Count + " Defects", "Main");
 
                 // At this point we have the FULL list of User Stories/Defects for the current
                 // project.  We now create a "new" project with the same properties, but this time
@@ -412,64 +466,47 @@ namespace AutoReport
             //CompleteProjectList[0].UserStories[0].Tasks[0].Actual
             DateTime dtEndTime = DateTime.Now;
             string strTotSeconds = dtEndTime.Subtract(dtStartTime).TotalSeconds.ToString();
-            DisplayOutput("Completed processing at " + DateTime.Now.ToLongTimeString() + " on " + DateTime.Now.ToLongDateString() + " - Total Processing Time: " + strTotSeconds + " seconds");
+            LogOutput("Completed processing at " + DateTime.Now.ToLongTimeString() + " on " + DateTime.Now.ToLongDateString() + " - Total Processing Time: " + strTotSeconds + " seconds", "Main");
 
         }
 
         /// <summary>
-        /// This reads the Initiatives that we want to report on from a text file
-        /// A text file is used rather than parsing all Initiatives for OCTO so
-        /// that we can report on only the ones we want
+        /// This reads the Initiatives that we want to report on from configuration
+        /// settings rather than parsing all Initiatives for OCTO so that we can 
+        /// report on only the ones we want
         /// </summary>
         public static List<Initiative> GetInitiativeList()
         {
 
             List<Initiative> listReturn = new List<Initiative>();
-            Int32 BufferSize = 128; // Setting the buffer size can spead up reading
+            string[] Initiatives = new string[0];
 
             // Full path and filename to read the Initiative list from
-            string strInitiativeList = AppDomain.CurrentDomain.BaseDirectory + "ReportList.txt";
-
-            try
+            string strInitiativeList = ConfigurationManager.AppSettings["ReportList"];
+            System.Text.RegularExpressions.Regex myReg = new System.Text.RegularExpressions.Regex(",");
+            Initiatives = myReg.Split(strInitiativeList);
+            foreach (string stringpart in Initiatives)
             {
-                // Open the file
-                using (var fileStream = System.IO.File.OpenRead(strInitiativeList))
-                using (var streamReader = new System.IO.StreamReader(fileStream, Encoding.UTF8, true, BufferSize))
+                // Grab all Information for the given initiative
+                Request rallyRequest = new Request("PortfolioItem/Initiative");
+                rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Owner", "PlannedStartDate", "PlannedEndDate", "Description", "State" };
+                rallyRequest.Query = new Query("FormattedID", Query.Operator.Equals, stringpart.Trim());
+                QueryResult rallyResult = RallyAPI.Query(rallyRequest);
+                foreach (var result in rallyResult.Results)
                 {
-                    String line;    // Input buffer
-                    while ((line = streamReader.ReadLine()) != null)
-                    {
-                        // Grab all Information for the given initiative
-                        Request rallyRequest = new Request("PortfolioItem/Initiative");
-                        rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Owner", "PlannedStartDate", "PlannedEndDate", "Description", "State" };
-                        rallyRequest.Query = new Query("FormattedID", Query.Operator.Equals, line.Trim());
-                        QueryResult rallyResult = RallyAPI.Query(rallyRequest);
-                        foreach (var result in rallyResult.Results)
-                        {
-                            // Create and populate the Initiative object
-                            Initiative initiative = new Initiative();
-                            initiative.FormattedID = RationalizeData(result["FormattedID"]);
-                            initiative.Name = RationalizeData(result["Name"]);
-                            initiative.Owner = RationalizeData(result["Owner"]);
-                            initiative.PlannedStartDate = Convert.ToDateTime(result["PlannedStartDate"]);
-                            initiative.PlannedEndDate = Convert.ToDateTime(result["PlannedEndDate"]);
-                            initiative.Description = RationalizeData(result["Description"]);
-                            initiative.State = RationalizeData(result["State"]);
-                            listReturn.Add(initiative);
-                        }
-                    }
-                    streamReader.Close();   // Clean up the reader
-                    streamReader.Dispose();
-                    fileStream.Close(); // Clean up the file stream
-                    fileStream.Dispose();
+                    // Create and populate the Initiative object
+                    Initiative initiative = new Initiative();
+                    initiative.FormattedID = RationalizeData(result["FormattedID"]);
+                    initiative.Name = RationalizeData(result["Name"]);
+                    initiative.Owner = RationalizeData(result["Owner"]);
+                    initiative.PlannedStartDate = Convert.ToDateTime(result["PlannedStartDate"]);
+                    initiative.PlannedEndDate = Convert.ToDateTime(result["PlannedEndDate"]);
+                    initiative.Description = RationalizeData(result["Description"]);
+                    initiative.State = RationalizeData(result["State"]);
+                    listReturn.Add(initiative);
                 }
+            }
 
-            }
-            catch (Exception ex)
-            {
-                DisplayOutput("Exception caught while attempting to open Report List: " + ex.Message);
-                //throw;
-            }
             return listReturn;
         }
 
@@ -547,7 +584,6 @@ namespace AutoReport
         /// <summary>
         /// This reads all defects for the supplied User Story
         /// </summary>
-        /// <param name="StoryID">FormattedID of the User Story</param>
         /// <param name="Parent">User Story to get all defects for</param>
         public static List<Defect> GetDefectsForStory(UserStory Parent)
         {
@@ -592,6 +628,9 @@ namespace AutoReport
             Request rallyRequest = new Request("HierarchicalRequirement");
             rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Release", "Iteration",
                 "Owner", "ScheduleState", "DirectChildrenCount", "Description", "PlanEstimate" };
+            // If this is the "Root" or highest order User Story, then we want to grab by the FormattedID of the actual portfolio
+            // item.  If this is a subordinate, then we want to grab everything where the PARENT object is the FormattedID that 
+            // we passed into the method
             if (RootParent)
             {
                 rallyRequest.Query = new Query("PortfolioItem.FormattedID", Query.Operator.Equals, ParentID);
@@ -616,12 +655,13 @@ namespace AutoReport
                 story.PlanEstimate = RationalizeData(result["PlanEstimate"], true);
                 story.Tasks = GetTasksForUserStory(story.FormattedID);
                 listReturn.Add(story);
-                DisplayOutput(story.FormattedID + " " + story.Name);
+                LogOutput(story.FormattedID + " " + story.Name);
 
                 // Check for children.  If there are children, then we need to drill down
                 // through all children to retrieve the full list of stories
                 if (story.Children > 0)
                 {
+                    // Recursively get child stories until we reach the lowest level
                     listReturn.AddRange(GetUserStoriesPerParent(story.FormattedID.Trim(), false));
                 }
             }
@@ -686,15 +726,23 @@ namespace AutoReport
                         }
                         else
                         {
-                            dynamic resp = RallyAPI.GetByReference(djo["_ref"]);
-                            switch ((string)djo["_type"])
+                            try
                             {
-                                case ("User"):
-                                    return resp["DisplayName"];
-                                case ("State"):
-                                    return resp["Name"];
-                                default:
-                                    return "";
+                                dynamic resp = RallyAPI.GetByReference(djo["_ref"]);
+                                switch ((string)djo["_type"])
+                                {
+                                    case ("User"):
+                                        return resp["DisplayName"];
+                                    case ("State"):
+                                        return resp["Name"];
+                                    default:
+                                        return "";
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                LogOutput("Error occurred getting JSon object from Rally for " + djo["_ref"] + ": " + ex.Message, "RationalizeData");
+                                return "";
                             }
                         }
                     case ("DateTime"):
@@ -840,15 +888,23 @@ namespace AutoReport
                         }
                         else
                         {
-                            dynamic resp = RallyAPI.GetByReference(djo["_ref"]);
-                            switch ((string)djo["_type"])
+                            try
                             {
-                                case ("User"):
-                                    return resp["DisplayName"];
-                                case ("State"):
-                                    return resp["Name"];
-                                default:
-                                    return "";
+                                dynamic resp = RallyAPI.GetByReference(djo["_ref"]);
+                                switch ((string)djo["_type"])
+                                {
+                                    case ("User"):
+                                        return resp["DisplayName"];
+                                    case ("State"):
+                                        return resp["Name"];
+                                    default:
+                                        return "";
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                LogOutput("Error occurred getting JSon object from Rally for " + djo["_ref"] + ": " + ex.Message, "RationalizeData");
+                                throw;
                             }
                         }
                     case ("DateTime"):
@@ -987,7 +1043,7 @@ namespace AutoReport
         /// Sends processing information to output (screen, file, etc)
         /// </summary>
         /// <param name="Message">Text to output</param>
-        private static void DisplayOutput(string Message)
+        private static void LogOutput(string Message, string Method)
         {
 
             Console.WriteLine(Message);
@@ -1133,6 +1189,37 @@ namespace AutoReport
             }
 
             return decReturn;
+
+        }
+
+        /// <summary>
+        /// Grabs all configuration information from config file
+        /// </summary>
+        private static bool GetConfigSettings()
+        {
+
+            try
+            {
+                ConfigRallyUID = ConfigurationManager.AppSettings["RallyUser"];
+                ConfigRallyPWD = ConfigurationManager.AppSettings["RallyPass"];
+                ConfigLogPath = ConfigurationManager.AppSettings["LogPath"];
+                ConfigReportPath = ConfigurationManager.AppSettings["ReportPath"];
+                if (ConfigurationManager.AppSettings["Debug"].ToUpper() == "Y")
+                {
+                    ConfigDebug = true;
+                }
+                else
+                {
+                    ConfigDebug = false;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Unable to read configuration settings: " + ex.Message);
+                return false;
+            }
+
+            return true;
 
         }
     }
