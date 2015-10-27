@@ -11,6 +11,8 @@ using Rally.RestApi.Exceptions;
 using Rally.RestApi.Json;
 using Rally.RestApi.Response;
 using System.Configuration;
+using Excel = Microsoft.Office.Interop.Excel;
+using Word = Microsoft.Office.Interop.Word;
 
 namespace AutoReport
 {
@@ -148,13 +150,37 @@ namespace AutoReport
             /// Is the project considered a "Top 5"
             /// </summary>
             public bool Expedite;
+            /// <summary>
+            /// List of Story Structures for Project
+            /// </summary>
             public List<UserStory> UserStories;
+            /// <summary>
+            /// List of Defect Structures for Project
+            /// </summary>
             public List<Defect> Defects;
+            /// <summary>
+            /// Total for all 'Estimates' of Stories
+            /// </summary>
             public decimal StoryEstimate;
+            /// <summary>
+            /// Total for all 'ToDo' of Stories
+            /// </summary>
             public decimal StoryToDo;
+            /// <summary>
+            /// Total for all 'Actuals' of Stories
+            /// </summary>
             public decimal StoryActual;
+            /// <summary>
+            /// Total for all 'Estimates' of Defects
+            /// </summary>
             public decimal DefectEstimate;
+            /// <summary>
+            /// Total for all 'ToDo' of Defects
+            /// </summary>
             public decimal DefectToDo;
+            /// <summary>
+            /// Total for all 'Actuals' of Defects
+            /// </summary>
             public decimal DefectActual;
         }
 
@@ -240,7 +266,14 @@ namespace AutoReport
             /// Parent Project this Story is part of
             /// </summary>
             public string ParentProject;
+            /// <summary>
+            /// List of Task Structures for this Story
+            /// </summary>
             public List<Task> Tasks;
+            /// <summary>
+            /// Is the Story blocked?
+            /// </summary>
+            public bool Blocked;
         }
 
         public struct Task
@@ -313,6 +346,9 @@ namespace AutoReport
             /// Story that the Defect belongs to
             /// </summary>
             public string ParentStory;
+            /// <summary>
+            /// List of Task Structures for the Defect
+            /// </summary>
             public List<Task> Tasks;
         }
 
@@ -328,10 +364,17 @@ namespace AutoReport
                 return;
             }
 
+            // Check for any commandline arguments
+            if (args.Length != 0)
+            {
+                // 
+                GetCommandArgs();
+            }
+
             LogOutput("Started processing at " + DateTime.Now.ToLongTimeString() + " on " + DateTime.Now.ToLongDateString(), "Main", false);
             DateTime dtStartTime = DateTime.Now;
             // Create the Rally API object
-            LogOutput("Creating reference to RallyAPI...", "Main",true);
+            LogOutput("Creating reference to RallyAPI...", "Main", true);
             RallyAPI = new RallyRestApi();
 
             // Login to Rally
@@ -344,7 +387,7 @@ namespace AutoReport
                 if (RallyAPI.AuthenticationState.ToString() != "Authenticated")
                 {
                     // We did not actually connect
-                    LogOutput("Unable to connect to Rally and establish session.  Application will terminate.", "Main",false);
+                    LogOutput("Unable to connect to Rally and establish session.  Application will terminate.", "Main", false);
                     return;
                 }
                 else
@@ -665,7 +708,7 @@ namespace AutoReport
 
             // Grab all UserStories under the given Epic
             Request rallyRequest = new Request("HierarchicalRequirement");
-            rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Release", "Iteration",
+            rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Release", "Iteration", "Blocked",
                 "Owner", "ScheduleState", "DirectChildrenCount", "Description", "PlanEstimate" };
             // If this is the "Root" or highest order User Story, then we want to grab by the FormattedID of the actual portfolio
             // item.  If this is a subordinate, then we want to grab everything where the PARENT object is the FormattedID that 
@@ -693,8 +736,9 @@ namespace AutoReport
                 story.ParentProject = "";
                 story.PlanEstimate = RationalizeData(result["PlanEstimate"], true);
                 story.Tasks = GetTasksForUserStory(story.FormattedID);
+                story.Blocked = RationalizeData(result["Blocked"]);
                 listReturn.Add(story);
-                LogOutput(story.FormattedID + " " + story.Name, "GetUserStoriesPerParent");
+                LogOutput(story.FormattedID + " " + story.Name, "GetUserStoriesPerParent", true);
 
                 // Check for children.  If there are children, then we need to drill down
                 // through all children to retrieve the full list of stories
@@ -780,7 +824,7 @@ namespace AutoReport
                             }
                             catch (Exception ex)
                             {
-                                LogOutput("Error occurred getting JSon object from Rally for " + djo["_ref"] + ": " + ex.Message, "RationalizeData");
+                                LogOutput("Error occurred getting JSon object from Rally for " + djo["_ref"] + ": " + ex.Message, "RationalizeData", true);
                                 return "";
                             }
                         }
@@ -942,7 +986,7 @@ namespace AutoReport
                             }
                             catch (Exception ex)
                             {
-                                LogOutput("Error occurred getting JSon object from Rally for " + djo["_ref"] + ": " + ex.Message, "RationalizeData");
+                                LogOutput("Error occurred getting JSon object from Rally for " + djo["_ref"] + ": " + ex.Message, "RationalizeData", true);
                                 throw;
                             }
                         }
@@ -1087,16 +1131,30 @@ namespace AutoReport
         private static void LogOutput(string Message, string Method, bool ExtendedLogInfo)
         {
 
+            System.IO.StreamWriter logfile = new System.IO.StreamWriter(LogFile, true);
 
+            // Check if we are in Debug mode or not
+            switch (ConfigDebug)
+            {
+                case true:
+                    // Full debug
+                    string strOutput = System.DateTime.Now.ToString("hh:mm:ss.ffffff") + "\tCURRENT MODULE: " + Method + "\tMESSAGE: " + Message;
+                    Console.WriteLine(strOutput);
+                    logfile.WriteLine(strOutput);
+                    break;
+                default:
+                    // Basic logging
+                    if (!ExtendedLogInfo)
+                    {
+                        Console.WriteLine(Message);
+                        logfile.WriteLine(Message);
+                    }
+                    break;
+            }
 
-            // Write the string to a file.
-            System.IO.StreamWriter reportfile = new System.IO.StreamWriter(LogFile);
-
-            Console.WriteLine(Message);
-            reportfile.WriteLine(Message);
-
-            reportfile.Close();
-            reportfile.Dispose();
+            logfile.Flush();
+            logfile.Close();
+            logfile.Dispose();
 
         }
 
@@ -1108,6 +1166,12 @@ namespace AutoReport
         {
 
             string strOutLine = "";
+
+            Excel.Application xlApp = new Excel.Application();
+            //Excel.Workbook xlWkbk = new Excel.Workbook();
+            Excel.Workbook xlWkbk = xlApp.Workbooks.Add(1);
+            Excel.Worksheet xlWkSheet = xlWkbk.Sheets[1];
+            xlWkSheet.Cells[0, 0] = "Test";
 
             // Write the string to a file.
             System.IO.StreamWriter reportfile = new System.IO.StreamWriter(ReportFile);
@@ -1124,6 +1188,8 @@ namespace AutoReport
                 strOutLine = strOutLine + " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" + "\r\n";
                 reportfile.WriteLine(strOutLine);
             }
+
+            reportfile.Flush();
             reportfile.Close();
             reportfile.Dispose();
 
@@ -1272,5 +1338,33 @@ namespace AutoReport
             return true;
 
         }
+
+        /// <summary>
+        /// Gets all Command Line Arguments
+        /// </summary>
+        private static void GetCommandArgs()
+        {
+
+            // Now get any commandline args
+            string[] CmdArgs = Environment.GetCommandLineArgs();
+
+            for (int LoopCtl = 0; LoopCtl < CmdArgs.Length; LoopCtl++)
+            {
+                // 
+                switch (CmdArgs[LoopCtl])
+                {
+                    case "":
+                        break;
+                    case "1":
+                        break;
+                    case "2":
+                        break;
+                    default:
+                        break;
+                }
+            }
+
+        }
+
     }
 }
