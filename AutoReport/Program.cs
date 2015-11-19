@@ -1182,6 +1182,7 @@ namespace AutoReport
             try
             {
                 sqlDatabase.Open();
+                bDBConnected = true;
             }
             catch (SqlException ex)
             {
@@ -1214,7 +1215,7 @@ namespace AutoReport
                     sqlCmd.Parameters.Add(new SqlParameter("OppAmount", proj.OpportunityAmount));
                     sqlCmd.Parameters.Add(new SqlParameter("Owner", proj.Owner));
                     // Check to make sure that PlannedStartDate is within date limits for SQL Server
-                    if (proj.PlannedStartDate < System.Data.SqlTypes.SqlDateTime.MinValue || proj.PlannedStartDate > System.Data.SqlTypes.SqlDateTime.MaxValue)
+                    if (proj.PlannedStartDate < Convert.ToDateTime("1/1/2010") || proj.PlannedStartDate > Convert.ToDateTime("1/1/2099"))
                     {
                         sqlCmd.Parameters.Add(new SqlParameter("PlannedStartDate", System.Data.SqlTypes.SqlDateTime.MinValue));
                     }
@@ -1223,7 +1224,7 @@ namespace AutoReport
                         sqlCmd.Parameters.Add(new SqlParameter("PlannedStartDate", proj.PlannedStartDate));
                     }
                     // Check to make sure that PlannedEndDate is within date limits for SQL Server
-                    if (proj.PlannedEndDate < System.Data.SqlTypes.SqlDateTime.MinValue || proj.PlannedEndDate > System.Data.SqlTypes.SqlDateTime.MaxValue)
+                    if (proj.PlannedEndDate < Convert.ToDateTime("1/1/2010") || proj.PlannedEndDate > Convert.ToDateTime("1/1/2099"))
                     {
                         sqlCmd.Parameters.Add(new SqlParameter("PlannedEndDate", System.Data.SqlTypes.SqlDateTime.MinValue));
                     }
@@ -1248,7 +1249,14 @@ namespace AutoReport
                     sqlCmd.Parameters.Add(new SqlParameter("HoursStoryToDo", proj.StoryToDo));
                     sqlCmd.Parameters.Add(new SqlParameter("HoursStoryActual", proj.StoryActual));
                     sqlCmd.Parameters.Add(new SqlParameter("ReportDate", System.DateTime.Now));
-                    sqlCmd.ExecuteNonQuery();
+                    try
+                    {
+                        sqlCmd.ExecuteNonQuery();
+                    }
+                    catch (Exception ex)
+                    {
+                        LogOutput("Error on insert to SQL Server:" + ex.Message, "CreateReport", false);
+                    }
                     sqlCmd.Dispose();
                 }
             }
