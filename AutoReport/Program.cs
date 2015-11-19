@@ -11,8 +11,9 @@ using Rally.RestApi.Exceptions;
 using Rally.RestApi.Json;
 using Rally.RestApi.Response;
 using System.Configuration;
-using Excel = Microsoft.Office.Interop.Excel;
-using Word = Microsoft.Office.Interop.Word;
+//using Excel = Microsoft.Office.Interop.Excel;
+//using Word = Microsoft.Office.Interop.Word;
+using System.Data.SqlClient;
 
 namespace AutoReport
 {
@@ -66,6 +67,10 @@ namespace AutoReport
         public static bool ConfigDebug;
         public static string ReportFile;
         public static string LogFile;
+        public static string ConfigDBServer;
+        public static string ConfigDBName;
+        public static string ConfigDBUID;
+        public static string ConfigDBPWD;
 
         // Global level structures
         public struct Initiative
@@ -1166,12 +1171,23 @@ namespace AutoReport
         {
 
             string strOutLine = "";
+            bool bDBConnected = false;
 
-            Excel.Application xlApp = new Excel.Application();
-            //Excel.Workbook xlWkbk = new Excel.Workbook();
-            Excel.Workbook xlWkbk = xlApp.Workbooks.Add(1);
-            Excel.Worksheet xlWkSheet = xlWkbk.Sheets[1];
-            xlWkSheet.Cells[0, 0] = "Test";
+            // Create the SQL Server database connection
+            SqlConnection sqlDatabase = new SqlConnection("Data Source=" + ConfigDBServer +
+                                                            ";Initial Catalog=" + ConfigDBName +
+                                                            ";User ID=" + ConfigDBUID +
+                                                            ";Password=" + ConfigDBPWD);
+
+            try
+            {
+                sqlDatabase.Open();
+            }
+            catch (SqlException ex)
+            {
+                LogOutput("Error connecting to SQL Server:" + ex.Message, "CreateReport", false);
+                bDBConnected = false;
+            }
 
             // Write the string to a file.
             System.IO.StreamWriter reportfile = new System.IO.StreamWriter(ReportFile);
@@ -1187,11 +1203,64 @@ namespace AutoReport
                 strOutLine = strOutLine + "   Total Actual for Defects --> " + proj.DefectActual + "\r\n";
                 strOutLine = strOutLine + " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" + "\r\n";
                 reportfile.WriteLine(strOutLine);
+
+                if (bDBConnected)
+                {
+                    SqlCommand sqlCmd = new SqlCommand("INSERT INTO dbo.DailyStats VALUES(@Initiative, @ProjectName, @OppAmount, @Owner, @PlannedStartDate, " +
+                            "@PlannedEndDate, @Expedite, @State, @CancelledReason, @HoursDefectsEstimate, @HoursDefectsToDo, @HoursDefectsActual, " +
+                            "@HoursStoryEstimate, @HoursStoryToDo, @HoursStoryActual, @ReportDate)", sqlDatabase);
+                    sqlCmd.Parameters.Add(new SqlParameter("Initiative", proj.Initiative));
+                    sqlCmd.Parameters.Add(new SqlParameter("ProjectName", proj.Name));
+                    sqlCmd.Parameters.Add(new SqlParameter("OppAmount", proj.OpportunityAmount));
+                    sqlCmd.Parameters.Add(new SqlParameter("Owner", proj.Owner));
+                    // Check to make sure that PlannedStartDate is within date limits for SQL Server
+                    if (proj.PlannedStartDate < System.Data.SqlTypes.SqlDateTime.MinValue || proj.PlannedStartDate > System.Data.SqlTypes.SqlDateTime.MaxValue)
+                    {
+                        sqlCmd.Parameters.Add(new SqlParameter("PlannedStartDate", System.Data.SqlTypes.SqlDateTime.MinValue));
+                    }
+                    else
+                    {
+                        sqlCmd.Parameters.Add(new SqlParameter("PlannedStartDate", proj.PlannedStartDate));
+                    }
+                    // Check to make sure that PlannedEndDate is within date limits for SQL Server
+                    if (proj.PlannedEndDate < System.Data.SqlTypes.SqlDateTime.MinValue || proj.PlannedEndDate > System.Data.SqlTypes.SqlDateTime.MaxValue)
+                    {
+                        sqlCmd.Parameters.Add(new SqlParameter("PlannedEndDate", System.Data.SqlTypes.SqlDateTime.MinValue));
+                    }
+                    else
+                    {
+                        sqlCmd.Parameters.Add(new SqlParameter("PlannedEndDate", proj.PlannedStartDate));
+                    }
+                    if (proj.Expedite)
+                    {
+                        sqlCmd.Parameters.Add(new SqlParameter("Expedite", "Y"));
+                    }
+                    else
+                    {
+                        sqlCmd.Parameters.Add(new SqlParameter("Expedite", "N"));
+                    }
+                    sqlCmd.Parameters.Add(new SqlParameter("State", proj.State));
+                    sqlCmd.Parameters.Add(new SqlParameter("CancelledReason", proj.RevokedReason));
+                    sqlCmd.Parameters.Add(new SqlParameter("HoursDefectsEstimate", proj.DefectEstimate));
+                    sqlCmd.Parameters.Add(new SqlParameter("HoursDefectsToDo", proj.DefectToDo));
+                    sqlCmd.Parameters.Add(new SqlParameter("HoursDefectsActual", proj.DefectActual));
+                    sqlCmd.Parameters.Add(new SqlParameter("HoursStoryEstimate", proj.StoryEstimate));
+                    sqlCmd.Parameters.Add(new SqlParameter("HoursStoryToDo", proj.StoryToDo));
+                    sqlCmd.Parameters.Add(new SqlParameter("HoursStoryActual", proj.StoryActual));
+                    sqlCmd.Parameters.Add(new SqlParameter("ReportDate", System.DateTime.Now));
+                    sqlCmd.ExecuteNonQuery();
+                    sqlCmd.Dispose();
+                }
             }
 
+            // Close the file
             reportfile.Flush();
             reportfile.Close();
             reportfile.Dispose();
+
+            // Close the database
+            sqlDatabase.Close();
+            sqlDatabase.Dispose();
 
         }
 
@@ -1317,6 +1386,11 @@ namespace AutoReport
                 ConfigRallyPWD = ConfigurationManager.AppSettings["RallyPass"];
                 ConfigLogPath = ConfigurationManager.AppSettings["LogPath"];
                 ConfigReportPath = ConfigurationManager.AppSettings["ReportPath"];
+                ConfigDBServer = ConfigurationManager.AppSettings["DBServer"];
+                ConfigDBName = ConfigurationManager.AppSettings["DBName"];
+                ConfigDBUID = ConfigurationManager.AppSettings["DBUID"];
+                ConfigDBPWD = ConfigurationManager.AppSettings["DBPWD"];
+
                 if (ConfigurationManager.AppSettings["Debug"].ToUpper() == "Y")
                 {
                     ConfigDebug = true;
