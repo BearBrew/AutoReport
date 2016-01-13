@@ -71,6 +71,10 @@ namespace AutoReport
         public static string ConfigDBName;
         public static string ConfigDBUID;
         public static string ConfigDBPWD;
+        public static OperateMode OperatingMode;
+        public static int ReportMonth;
+        public static int ReportQuarter;
+        public static int ReportYear;
 
         // Global level structures
         public struct Initiative
@@ -119,6 +123,10 @@ namespace AutoReport
             /// Name of the Owner of the Project
             /// </summary>
             public string Owner;
+            /// <summary>
+            /// Name of the person responsible for providing status updates
+            /// </summary>
+            public string UpdateOwner;
             /// <summary>
             /// Planned Start date of the Project
             /// </summary>
@@ -358,6 +366,7 @@ namespace AutoReport
         }
 
         public enum ProjectTotal { Estimate = 1, ToDo, Actual };
+        public enum OperateMode { Daily = 1, Monthly, Quarterly, Annual, Weekly };
 
         static void Main(string[] args)
         {
@@ -529,16 +538,39 @@ namespace AutoReport
             LogOutput("Appending new project object to object 'CompleteProjectList'", "Main", true);
 
             // We now have a full list of all projects with all complete information so
-            // at this point we need to total the Actuals for each project
-            AllProjectInfo = new List<Project>();
-            LogOutput("Calling 'CalculateTotals' with " + CompleteProjectList.Count + " complete projects...", "Main", true);
-            AllProjectInfo = CalculateTotals(CompleteProjectList);
-            LogOutput("Done with 'CalculateTotals'", "Main", true);
+            // at this point we can calculate the Actuals for each project based on the reporting mode we are operating in
+            switch (OperatingMode)
+            {
+                case OperateMode.Daily:
+                    AllProjectInfo = new List<Project>();
+                    LogOutput("Calling 'CalculateDailyTotals' with " + CompleteProjectList.Count + " complete projects...", "Main", true);
+                    AllProjectInfo = CalculateDailyTotals(CompleteProjectList);
+                    LogOutput("Done with 'CalculateDailyTotals'", "Main", true);
 
-            // Now create the final report
-            LogOutput("Calling 'CreateReport'...", "Main", true);
-            CreateReport(AllProjectInfo);
-            LogOutput("Done with 'CreateReport'...", "Main", true);
+                    // Now create the final report
+                    LogOutput("Calling 'CreateDailyReport'...", "Main", true);
+                    CreateDailyReport(AllProjectInfo);
+                    LogOutput("Done with 'CreateDailyReport'...", "Main", true);
+                    break;
+                case OperateMode.Monthly:
+                    break;
+                case OperateMode.Quarterly:
+                    break;
+                case OperateMode.Annual:
+                    break;
+                case OperateMode.Weekly:
+                    break;
+            }
+
+            //AllProjectInfo = new List<Project>();
+            //LogOutput("Calling 'CalculateDailyTotals' with " + CompleteProjectList.Count + " complete projects...", "Main", true);
+            //AllProjectInfo = CalculateDailyTotals(CompleteProjectList);
+            //LogOutput("Done with 'CalculateDailyTotals'", "Main", true);
+
+            //// Now create the final report
+            //LogOutput("Calling 'CreateDailyReport'...", "Main", true);
+            //CreateDailyReport(AllProjectInfo);
+            //LogOutput("Done with 'CreateDailyReport'...", "Main", true);
 
             //CompleteProjectList[0].UserStories[0].Tasks[0].Actual
             DateTime dtEndTime = DateTime.Now;
@@ -548,35 +580,38 @@ namespace AutoReport
         }
 
         /// <summary>
-        /// This reads the Initiatives that we want to report on from configuration
-        /// settings rather than parsing all Initiatives for OCTO so that we can 
-        /// report on only the ones we want
+        /// This reads the Initiatives that we do NOT want to report on from configuration
+        /// settings to allow ignoring Initiatives for OCTO that we don't we want
         /// </summary>
         public static List<Initiative> GetInitiativeList()
         {
 
             List<Initiative> listReturn = new List<Initiative>();
-            string[] Initiatives = new string[0];
+            string[] IgnoreList = new string[0];
 
             // Full path and filename to read the Initiative list from
             LogOutput("Getting list of initiatives from 'ConfigurationManager'...", "GetInitiativeList", true);
-            string strInitiativeList = ConfigurationManager.AppSettings["ReportList"];
-            LogOutput("Full configured list is: " + strInitiativeList, "GetInitiativeList", true);
+            string strIgnoreList = ConfigurationManager.AppSettings["IgnoreList"];
+            LogOutput("Configured ignore list is: " + strIgnoreList, "GetInitiativeList", true);
             System.Text.RegularExpressions.Regex myReg = new System.Text.RegularExpressions.Regex(",");
-            Initiatives = myReg.Split(strInitiativeList);
+            IgnoreList = myReg.Split(strIgnoreList);
             LogOutput("Looping for each initiative to get full information...", "GetInitiativeList", false);
-            foreach (string stringpart in Initiatives)
+            //foreach (string stringpart in IgnoreList)
+            //{
+            // Grab all Information for the given initiative
+            LogOutput("Using RallyAPI to request information for all Initiatives...", "GetInitiativeList", true);
+            LogOutput("Building Rally Request...", "GetInitiativeList", true);
+            Request rallyRequest = new Request("PortfolioItem/Initiative");
+            rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Owner", "PlannedStartDate", "PlannedEndDate", "Description", "State" };
+            //rallyRequest.Query = new Query("FormattedID", Query.Operator.Equals, stringpart.Trim());
+            rallyRequest.Query = new Query("Project.Name", Query.Operator.Equals, "CTO Customer & Innovation Labs");
+            LogOutput("Running Rally Query request...", "GetInitiativeList", true);
+            QueryResult rallyResult = RallyAPI.Query(rallyRequest);
+            LogOutput("Looping through Query result...", "GetInitiativeList", true);
+            foreach (var result in rallyResult.Results)
             {
-                // Grab all Information for the given initiative
-                LogOutput("Using RallyAPI to request information for " + stringpart + "...", "GetInitiativeList", true);
-                LogOutput("Building Rally Request...", "GetInitiativeList", true);
-                Request rallyRequest = new Request("PortfolioItem/Initiative");
-                rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Owner", "PlannedStartDate", "PlannedEndDate", "Description", "State" };
-                rallyRequest.Query = new Query("FormattedID", Query.Operator.Equals, stringpart.Trim());
-                LogOutput("Running Rally Query request...", "GetInitiativeList", true);
-                QueryResult rallyResult = RallyAPI.Query(rallyRequest);
-                LogOutput("Looping through Query result...", "GetInitiativeList", true);
-                foreach (var result in rallyResult.Results)
+                // Only process this entry if NOT in the ignore list
+                if (!CheckIgnoreList(IgnoreList, RationalizeData(result["FormattedID"])))
                 {
                     // Create and populate the Initiative object
                     LogOutput("Creating new Initiative object and saving...", "GetInitiativeList", true);
@@ -592,6 +627,7 @@ namespace AutoReport
                     listReturn.Add(initiative);
                 }
             }
+            //}
             LogOutput("Completed processing all initiatives, returning list", "GetInitiativeList", true);
 
             return listReturn;
@@ -609,7 +645,7 @@ namespace AutoReport
             // Grab all Features under the given initiative
             Request rallyRequest = new Request("PortfolioItem/Feature");
             rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Owner", "PlannedStartDate", "PlannedEndDate",
-                "c_ProjectUpdate", "c_RevokedReason", "State", "ValueScore", "Description", "Expedite"};
+                "c_ProjectUpdate", "c_RevokedReason", "State", "ValueScore", "Description", "Expedite", "c_UpdateOwner"};
             rallyRequest.Query = new Query("Parent.Name", Query.Operator.Equals, InitiativeID);
             QueryResult rallyResult = RallyAPI.Query(rallyRequest);
             foreach (var result in rallyResult.Results)
@@ -627,6 +663,7 @@ namespace AutoReport
                 proj.State = RationalizeData(result["State"]);
                 proj.Description = RationalizeData(result["Description"]);
                 proj.Expedite = RationalizeData(result["Expedite"]);
+                proj.UpdateOwner = RationalizeData(result["c_UpdateOwner"]);
                 proj.Initiative = InitiativeID;
                 listReturn.Add(proj);
             }
@@ -1167,7 +1204,7 @@ namespace AutoReport
         /// Creates the final output report using the supplied project list
         /// </summary>
         /// <param name="projects">Project list, with calculations, to use for report</param>
-        private static void CreateReport(List<Project> projects)
+        private static void CreateDailyReport(List<Project> projects)
         {
 
             string strOutLine = "";
@@ -1186,7 +1223,7 @@ namespace AutoReport
             }
             catch (SqlException ex)
             {
-                LogOutput("Error connecting to SQL Server:" + ex.Message, "CreateReport", false);
+                LogOutput("Error connecting to SQL Server:" + ex.Message, "CreateDailyReport", false);
                 bDBConnected = false;
             }
 
@@ -1255,7 +1292,7 @@ namespace AutoReport
                     }
                     catch (Exception ex)
                     {
-                        LogOutput("Error on insert to SQL Server:" + ex.Message, "CreateReport", false);
+                        LogOutput("Error on insert to SQL Server:" + ex.Message, "CreateDailyReport", false);
                     }
                     sqlCmd.Dispose();
                 }
@@ -1276,7 +1313,7 @@ namespace AutoReport
         /// Runs through all tasks associated with a project (both User Stories and Defects) and totals the Estimates, ToDo, and Actuals
         /// </summary>
         /// <param name="SourceProjectList">Original Project list to calculate</param>
-        private static List<Project> CalculateTotals(List<Project> SourceProjectList)
+        private static List<Project> CalculateDailyTotals(List<Project> SourceProjectList)
         {
 
             List<Project> DestinationProjectList = new List<Project>();
@@ -1432,19 +1469,63 @@ namespace AutoReport
 
             for (int LoopCtl = 0; LoopCtl < CmdArgs.Length; LoopCtl++)
             {
-                // 
-                switch (CmdArgs[LoopCtl])
+                // Daily Stats = No Switch
+                // Monthly Stats = -M#YYYY
+                // Quarterly Stats = -Q#YYYY
+                // Annual Stats = -AYYYY
+                // Weekly Status Update = -W
+                string OpsModeSetting = CmdArgs[LoopCtl];
+                switch (OpsModeSetting.Substring(0, 2).ToUpper())
                 {
-                    case "":
+                    case "/H":
+                        // Message the user what the usage is
                         break;
-                    case "1":
+                    case "-M":
+                        // Format should be -M<number><Year>
+                        OperatingMode = OperateMode.Monthly;
+                        ReportMonth = Convert.ToInt32(OpsModeSetting.Substring(2, 1));
+                        ReportYear = Convert.ToInt32(OpsModeSetting.Substring(3, 4));
                         break;
-                    case "2":
+                    case "-Q":
+                        OperatingMode = OperateMode.Quarterly;
+                        ReportQuarter = Convert.ToInt32(OpsModeSetting.Substring(2, 1));
+                        ReportYear = Convert.ToInt32(OpsModeSetting.Substring(3, 4));
+                        break;
+                    case "-A":
+                        OperatingMode = OperateMode.Annual;
+                        ReportYear = Convert.ToInt32(OpsModeSetting.Substring(2, 4));
+                        break;
+                    case "-W":
+                        OperatingMode = OperateMode.Weekly;
                         break;
                     default:
+                        OperatingMode = OperateMode.Daily;
                         break;
                 }
             }
+
+        }
+
+        /// <summary>
+        /// Loops through the supplied list of Initiatives to ignore to see if the supplied Initiative IDNumber
+        /// is in the list.  If it is, returns "True" indicating that we should ignore.
+        /// </summary>
+        private static bool CheckIgnoreList(string[] IgnoreList, string IDToCheck)
+        {
+
+            // Loop through the IgnoreList
+            foreach (string stringpart in IgnoreList)
+            {
+                // Compare the Ignore item to the current Initiative ID number
+                if (stringpart == IDToCheck)
+                {
+                    // YES, this should be ignored
+                    return true;
+                }
+            }
+
+            // If we get here, then the ID is not in the Ignore list, so NO, we should not ignore it
+            return false;
 
         }
 
