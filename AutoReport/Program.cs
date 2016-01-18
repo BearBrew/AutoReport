@@ -156,6 +156,10 @@ namespace AutoReport
             /// </summary>
             public string RevokedReason;
             /// <summary>
+            /// Primary Stakeholder
+            /// </summary>
+            public string StakeHolder;
+            /// <summary>
             /// Parent Initiative for the Project
             /// </summary>
             public string Initiative;
@@ -385,8 +389,33 @@ namespace AutoReport
                 GetCommandArgs();
             }
 
+            // Log the start of processing
             LogOutput("Started processing at " + DateTime.Now.ToLongTimeString() + " on " + DateTime.Now.ToLongDateString(), "Main", false);
             DateTime dtStartTime = DateTime.Now;
+
+            // Log the operating mode
+            switch (OperatingMode)
+            {
+                case OperateMode.Daily:
+                    LogOutput("Operating in Daily Mode...", "Main", false);
+                    break;
+                case OperateMode.Monthly:
+                    LogOutput("Operating in Monthly mode...Processing for month " + ReportMonth.ToString(), "Main", false);
+                    break;
+                case OperateMode.Quarterly:
+                    LogOutput("Operating in Quarterly mode...Processing for Quarter Q" + ReportQuarter.ToString() + "Y" + ReportYear.ToString(), "Main", false);
+                    break;
+                case OperateMode.Annual:
+                    LogOutput("Operating in Annual mode...Processing for year " + ReportYear.ToString(), "Main", false);
+                    break;
+                case OperateMode.Weekly:
+                    LogOutput("Operating in Weekly mode...", "Main", false);
+                    break;
+                default:
+                    LogOutput("Unknown Operating mode...assuming Daily...", "Main", false);
+                    break;
+            }
+
             // Create the Rally API object
             LogOutput("Creating reference to RallyAPI...", "Main", true);
             RallyAPI = new RallyRestApi();
@@ -524,6 +553,8 @@ namespace AutoReport
                 newproject.Name = proj.Name;
                 newproject.OpportunityAmount = proj.OpportunityAmount;
                 newproject.Owner = proj.Owner;
+                newproject.UpdateOwner = proj.UpdateOwner;
+                newproject.StakeHolder = proj.StakeHolder;
                 newproject.PlannedEndDate = proj.PlannedEndDate;
                 newproject.PlannedStartDate = proj.PlannedStartDate;
                 newproject.RevokedReason = proj.RevokedReason;
@@ -555,6 +586,15 @@ namespace AutoReport
                 case OperateMode.Monthly:
                     break;
                 case OperateMode.Quarterly:
+                    AllProjectInfo = new List<Project>();
+                    LogOutput("Calling 'CalculateQuarterTotals' with " + CompleteProjectList.Count + " complete projects...", "Main", true);
+                    AllProjectInfo = CalculateQuarterTotals(CompleteProjectList, ReportQuarter, ReportYear);
+                    LogOutput("Done with 'CalculateQuarterTotals'", "Main", true);
+
+                    // Now create the final report
+                    LogOutput("Calling 'CreateQuarterReport'...", "Main", true);
+                    CreateQuarterReport(AllProjectInfo, ReportYear.ToString() + 'Q' + ReportQuarter.ToString());
+                    LogOutput("Done with 'CreateQuarterReport'...", "Main", true);
                     break;
                 case OperateMode.Annual:
                     break;
@@ -661,6 +701,7 @@ namespace AutoReport
                 proj.RevokedReason = RationalizeData(result["c_RevokedReason"]);
                 proj.OpportunityAmount = RationalizeData(result["ValueScore"]);
                 proj.State = RationalizeData(result["State"]);
+                proj.StakeHolder = RationalizeData(result["c_StakeHolder"]);
                 proj.Description = RationalizeData(result["Description"]);
                 proj.Expedite = RationalizeData(result["Expedite"]);
                 proj.UpdateOwner = RationalizeData(result["c_UpdateOwner"]);
@@ -1228,6 +1269,7 @@ namespace AutoReport
             }
 
             // Write the string to a file.
+            ReportFile = ConfigReportPath + "\\" + System.DateTime.Now.ToString("ddMMMyyyy") + "-" + System.DateTime.Now.ToString("HHmm") + "_DailyReport.txt";
             System.IO.StreamWriter reportfile = new System.IO.StreamWriter(ReportFile);
 
             foreach (Project proj in projects)
@@ -1246,7 +1288,7 @@ namespace AutoReport
                 {
                     SqlCommand sqlCmd = new SqlCommand("INSERT INTO dbo.DailyStats VALUES(@Initiative, @ProjectName, @OppAmount, @Owner, @PlannedStartDate, " +
                             "@PlannedEndDate, @Expedite, @State, @CancelledReason, @HoursDefectsEstimate, @HoursDefectsToDo, @HoursDefectsActual, " +
-                            "@HoursStoryEstimate, @HoursStoryToDo, @HoursStoryActual, @ReportDate)", sqlDatabase);
+                            "@HoursStoryEstimate, @HoursStoryToDo, @HoursStoryActual, @ReportDate, @UpdateOwner)", sqlDatabase);
                     sqlCmd.Parameters.Add(new SqlParameter("Initiative", proj.Initiative));
                     sqlCmd.Parameters.Add(new SqlParameter("ProjectName", proj.Name));
                     sqlCmd.Parameters.Add(new SqlParameter("OppAmount", proj.OpportunityAmount));
@@ -1286,6 +1328,8 @@ namespace AutoReport
                     sqlCmd.Parameters.Add(new SqlParameter("HoursStoryToDo", proj.StoryToDo));
                     sqlCmd.Parameters.Add(new SqlParameter("HoursStoryActual", proj.StoryActual));
                     sqlCmd.Parameters.Add(new SqlParameter("ReportDate", System.DateTime.Now));
+                    sqlCmd.Parameters.Add(new SqlParameter("UpdateOwner", proj.UpdateOwner));
+                    sqlCmd.Parameters.Add(new SqlParameter("UpdateOwner", proj.UpdateOwner));
                     try
                     {
                         sqlCmd.ExecuteNonQuery();
@@ -1293,6 +1337,120 @@ namespace AutoReport
                     catch (Exception ex)
                     {
                         LogOutput("Error on insert to SQL Server:" + ex.Message, "CreateDailyReport", false);
+                    }
+                    sqlCmd.Dispose();
+                }
+            }
+
+            // Close the file
+            reportfile.Flush();
+            reportfile.Close();
+            reportfile.Dispose();
+
+            // Close the database
+            sqlDatabase.Close();
+            sqlDatabase.Dispose();
+
+        }
+
+        /// <summary>
+        /// Creates the final quarter output report using the supplied project list
+        /// </summary>
+        /// <param name="projects">Project list, with calculations, to use for report</param>
+        /// <param name="ReportingPeriod">Quarter reporting on</param>
+        private static void CreateQuarterReport(List<Project> projects, string ReportingPeriod)
+        {
+
+            string strOutLine = "";
+            bool bDBConnected = false;
+
+            // Create the SQL Server database connection
+            SqlConnection sqlDatabase = new SqlConnection("Data Source=" + ConfigDBServer +
+                                                            ";Initial Catalog=" + ConfigDBName +
+                                                            ";User ID=" + ConfigDBUID +
+                                                            ";Password=" + ConfigDBPWD);
+
+            try
+            {
+                sqlDatabase.Open();
+                bDBConnected = true;
+            }
+            catch (SqlException ex)
+            {
+                LogOutput("Error connecting to SQL Server:" + ex.Message, "CreateQuarterReport", false);
+                bDBConnected = false;
+            }
+
+            // Write the string to a file.
+            ReportFile = ConfigReportPath + "\\" + System.DateTime.Now.ToString("ddMMMyyyy") + "-" + System.DateTime.Now.ToString("HHmm") + "_QuarterReport.txt";
+            System.IO.StreamWriter reportfile = new System.IO.StreamWriter(ReportFile);
+
+            foreach (Project proj in projects)
+            {
+                strOutLine = ReportingPeriod + " Final Totals for: " + proj.Name + "\r\n";
+                strOutLine = strOutLine + "   Total Estimate for Stories --> " + proj.StoryEstimate + "\r\n";
+                strOutLine = strOutLine + "   Total ToDo for Stories --> " + proj.StoryToDo + "\r\n";
+                strOutLine = strOutLine + "   Total Actual for Stories --> " + proj.StoryActual + "\r\n";
+                strOutLine = strOutLine + "   Total Estimate for Defects --> " + proj.DefectEstimate + "\r\n";
+                strOutLine = strOutLine + "   Total ToDo for Defects --> " + proj.DefectToDo + "\r\n";
+                strOutLine = strOutLine + "   Total Actual for Defects --> " + proj.DefectActual + "\r\n";
+                strOutLine = strOutLine + " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" + "\r\n";
+                reportfile.WriteLine(strOutLine);
+
+                if (bDBConnected)
+                {
+                    SqlCommand sqlCmd = new SqlCommand("INSERT INTO dbo.QuarterStats VALUES(@Initiative, @ProjectName, @OppAmount, @Owner, @PlannedStartDate, " +
+                            "@PlannedEndDate, @Expedite, @State, @CancelledReason, @HoursDefectsEstimate, @HoursDefectsToDo, @HoursDefectsActual, " +
+                            "@HoursStoryEstimate, @HoursStoryToDo, @HoursStoryActual, @ReportDate, @UpdateOwner, @ReportingPeriod)", sqlDatabase);
+                    sqlCmd.Parameters.Add(new SqlParameter("Initiative", proj.Initiative));
+                    sqlCmd.Parameters.Add(new SqlParameter("ProjectName", proj.Name));
+                    sqlCmd.Parameters.Add(new SqlParameter("OppAmount", proj.OpportunityAmount));
+                    sqlCmd.Parameters.Add(new SqlParameter("Owner", proj.Owner));
+                    // Check to make sure that PlannedStartDate is within date limits for SQL Server
+                    if (proj.PlannedStartDate < Convert.ToDateTime("1/1/2010") || proj.PlannedStartDate > Convert.ToDateTime("1/1/2099"))
+                    {
+                        sqlCmd.Parameters.Add(new SqlParameter("PlannedStartDate", System.Data.SqlTypes.SqlDateTime.MinValue));
+                    }
+                    else
+                    {
+                        sqlCmd.Parameters.Add(new SqlParameter("PlannedStartDate", proj.PlannedStartDate));
+                    }
+                    // Check to make sure that PlannedEndDate is within date limits for SQL Server
+                    if (proj.PlannedEndDate < Convert.ToDateTime("1/1/2010") || proj.PlannedEndDate > Convert.ToDateTime("1/1/2099"))
+                    {
+                        sqlCmd.Parameters.Add(new SqlParameter("PlannedEndDate", System.Data.SqlTypes.SqlDateTime.MinValue));
+                    }
+                    else
+                    {
+                        sqlCmd.Parameters.Add(new SqlParameter("PlannedEndDate", proj.PlannedStartDate));
+                    }
+                    if (proj.Expedite)
+                    {
+                        sqlCmd.Parameters.Add(new SqlParameter("Expedite", "Y"));
+                    }
+                    else
+                    {
+                        sqlCmd.Parameters.Add(new SqlParameter("Expedite", "N"));
+                    }
+                    sqlCmd.Parameters.Add(new SqlParameter("State", proj.State));
+                    sqlCmd.Parameters.Add(new SqlParameter("CancelledReason", proj.RevokedReason));
+                    sqlCmd.Parameters.Add(new SqlParameter("HoursDefectsEstimate", proj.DefectEstimate));
+                    sqlCmd.Parameters.Add(new SqlParameter("HoursDefectsToDo", proj.DefectToDo));
+                    sqlCmd.Parameters.Add(new SqlParameter("HoursDefectsActual", proj.DefectActual));
+                    sqlCmd.Parameters.Add(new SqlParameter("HoursStoryEstimate", proj.StoryEstimate));
+                    sqlCmd.Parameters.Add(new SqlParameter("HoursStoryToDo", proj.StoryToDo));
+                    sqlCmd.Parameters.Add(new SqlParameter("HoursStoryActual", proj.StoryActual));
+                    sqlCmd.Parameters.Add(new SqlParameter("ReportDate", System.DateTime.Now));
+                    sqlCmd.Parameters.Add(new SqlParameter("UpdateOwner", proj.UpdateOwner));
+                    sqlCmd.Parameters.Add(new SqlParameter("UpdateOwner", proj.UpdateOwner));
+                    sqlCmd.Parameters.Add(new SqlParameter("ReportingPeriod", ReportingPeriod));
+                    try
+                    {
+                        sqlCmd.ExecuteNonQuery();
+                    }
+                    catch (Exception ex)
+                    {
+                        LogOutput("Error on insert to SQL Server:" + ex.Message, "CreateQuarterReport", false);
                     }
                     sqlCmd.Dispose();
                 }
@@ -1330,6 +1488,7 @@ namespace AutoReport
                 newproject.Name = proj.Name;
                 newproject.OpportunityAmount = proj.OpportunityAmount;
                 newproject.Owner = proj.Owner;
+                newproject.UpdateOwner = proj.UpdateOwner;
                 newproject.PlannedEndDate = proj.PlannedEndDate;
                 newproject.PlannedStartDate = proj.PlannedStartDate;
                 newproject.RevokedReason = proj.RevokedReason;
@@ -1337,12 +1496,56 @@ namespace AutoReport
                 newproject.StatusUpdate = proj.StatusUpdate;
                 newproject.UserStories = proj.UserStories;
                 newproject.Defects = proj.Defects;
-                newproject.StoryEstimate = CreateTotal(newproject.UserStories, ProjectTotal.Estimate);
-                newproject.StoryToDo = CreateTotal(newproject.UserStories, ProjectTotal.ToDo);
-                newproject.StoryActual = CreateTotal(newproject.UserStories, ProjectTotal.Actual);
-                newproject.DefectEstimate = CreateTotal(newproject.Defects, ProjectTotal.Estimate);
-                newproject.DefectToDo = CreateTotal(newproject.Defects, ProjectTotal.ToDo);
-                newproject.DefectActual = CreateTotal(newproject.Defects, ProjectTotal.Actual);
+                newproject.StoryEstimate = CreateDailyTotal(newproject.UserStories, ProjectTotal.Estimate);
+                newproject.StoryToDo = CreateDailyTotal(newproject.UserStories, ProjectTotal.ToDo);
+                newproject.StoryActual = CreateDailyTotal(newproject.UserStories, ProjectTotal.Actual);
+                newproject.DefectEstimate = CreateDailyTotal(newproject.Defects, ProjectTotal.Estimate);
+                newproject.DefectToDo = CreateDailyTotal(newproject.Defects, ProjectTotal.ToDo);
+                newproject.DefectActual = CreateDailyTotal(newproject.Defects, ProjectTotal.Actual);
+                DestinationProjectList.Add(newproject);
+            }
+
+            return DestinationProjectList;
+
+        }
+
+        /// <summary>
+        /// Runs through all tasks associated with a project (both User Stories and Defects) and totals the Estimates, ToDo, and Actuals for the quarter
+        /// </summary>
+        /// <param name="SourceProjectList">Original Project list to calculate</param>
+        /// <param name="ReportQuarter">Quarter to generate totals for</param>
+        /// <param name="ReportYear">Year to generate totals for</param>
+        private static List<Project> CalculateQuarterTotals(List<Project> SourceProjectList, int ReportQuarter, int ReportYear)
+        {
+
+            List<Project> DestinationProjectList = new List<Project>();
+
+            // Once again, we need to loop through all projects and build a new list 
+            // with the summary information included
+            foreach (Project proj in SourceProjectList)
+            {
+                Project newproject = new Project();
+                newproject.Description = proj.Description;
+                newproject.Expedite = proj.Expedite;
+                newproject.FormattedID = proj.FormattedID;
+                newproject.Initiative = proj.Initiative;
+                newproject.Name = proj.Name;
+                newproject.OpportunityAmount = proj.OpportunityAmount;
+                newproject.Owner = proj.Owner;
+                newproject.UpdateOwner = proj.UpdateOwner;
+                newproject.PlannedEndDate = proj.PlannedEndDate;
+                newproject.PlannedStartDate = proj.PlannedStartDate;
+                newproject.RevokedReason = proj.RevokedReason;
+                newproject.State = proj.State;
+                newproject.StatusUpdate = proj.StatusUpdate;
+                newproject.UserStories = proj.UserStories;
+                newproject.Defects = proj.Defects;
+                newproject.StoryEstimate = CreateQuarterTotal(newproject.UserStories, ProjectTotal.Estimate, ReportQuarter, ReportYear);
+                newproject.StoryToDo = CreateQuarterTotal(newproject.UserStories, ProjectTotal.ToDo, ReportQuarter, ReportYear);
+                newproject.StoryActual = CreateQuarterTotal(newproject.UserStories, ProjectTotal.Actual, ReportQuarter, ReportYear);
+                newproject.DefectEstimate = CreateQuarterTotal(newproject.Defects, ProjectTotal.Estimate, ReportQuarter, ReportYear);
+                newproject.DefectToDo = CreateQuarterTotal(newproject.Defects, ProjectTotal.ToDo, ReportQuarter, ReportYear);
+                newproject.DefectActual = CreateQuarterTotal(newproject.Defects, ProjectTotal.Actual, ReportQuarter, ReportYear);
                 DestinationProjectList.Add(newproject);
             }
 
@@ -1355,7 +1558,7 @@ namespace AutoReport
         /// </summary>
         /// <param name="stories">List of stories to calculate</param>
         /// <param name="action">Indicates whether to total for Estimate, ToDo, or Actuals</param>
-        private static decimal CreateTotal(List<UserStory> stories, ProjectTotal action)
+        private static decimal CreateDailyTotal(List<UserStory> stories, ProjectTotal action)
         {
 
             decimal decReturn = 0;
@@ -1389,7 +1592,7 @@ namespace AutoReport
         /// </summary>
         /// <param name="defects">List of Defects to calculate</param>
         /// <param name="action">Indicates whether to total for Estimate, ToDo, or Actuals</param>
-        private static decimal CreateTotal(List<Defect> defects, ProjectTotal action)
+        private static decimal CreateDailyTotal(List<Defect> defects, ProjectTotal action)
         {
 
             decimal decReturn = 0;
@@ -1411,6 +1614,103 @@ namespace AutoReport
                             break;
                         default:
                             break;
+                    }
+                }
+            }
+
+            return decReturn;
+
+        }
+
+        /// <summary>
+        /// Accepts list of all User Stories / Defects and calculates totals
+        /// </summary>
+        /// <param name="stories">List of stories to calculate</param>
+        /// <param name="action">Indicates whether to total for Estimate, ToDo, or Actuals</param>
+        /// <param name="RptQuarter">Which quarter to generate totals for</param>
+        /// <param name="RptYear">Which Year to generate totals for</param>
+        private static decimal CreateQuarterTotal(List<UserStory> stories, ProjectTotal action, int RptQuarter, int RptYear)
+        {
+
+            decimal decReturn = 0;
+            string ReportPeriod = "";
+            string StoryRptPeriod = "";
+
+            // Set the string to indicate the Reporting Period
+            ReportPeriod = "Q" + RptQuarter + RptYear;
+
+            // Loop through the stories
+            foreach (UserStory story in stories)
+            {
+                // Set the string to indicate the story period
+                // Releases are quarterly and of the format--> 2016'Q1 CTO C&I Labs
+                StoryRptPeriod = "Q" + story.Release.Substring(6, 1) + story.Release.Substring(0, 4);
+                if (ReportPeriod == StoryRptPeriod)
+                {
+                    foreach (Task task in story.Tasks)
+                    {
+                        switch (action)
+                        {
+                            case ProjectTotal.Estimate:
+                                decReturn = decReturn + task.Estimate;
+                                break;
+                            case ProjectTotal.ToDo:
+                                decReturn = decReturn + task.ToDo;
+                                break;
+                            case ProjectTotal.Actual:
+                                decReturn = decReturn + task.Actual;
+                                break;
+                            default:
+                                break;
+                        }
+                    }
+                }
+            }
+
+            return decReturn;
+
+        }
+        /// <summary>
+        /// Accepts list of all User Stories / Defects and calculates totals
+        /// </summary>
+        /// <param name="defects">List of Defects to calculate</param>
+        /// <param name="action">Indicates whether to total for Estimate, ToDo, or Actuals</param>
+        /// <param name="RptQuarter">Which quarter to generate totals for</param>
+        /// <param name="RptYear">Which Year to generate totals for</param>
+        private static decimal CreateQuarterTotal(List<Defect> defects, ProjectTotal action, int RptQuarter, int RptYear)
+        {
+
+            decimal decReturn = 0;
+            string ReportPeriod = "";
+            string StoryRptPeriod = "";
+
+            // Set the string to indicate the Reporting Period
+            ReportPeriod = "Q" + RptQuarter + RptYear;
+
+            // Loop through the stories
+            foreach (Defect defect in defects)
+            {
+                // Set the string to indicate the story period
+                // Releases are quarterly and of the format--> 2016'Q1 CTO C&I Labs
+                StoryRptPeriod = "Q" + defect.Release.Substring(6, 1) + defect.Release.Substring(0, 4);
+                if (ReportPeriod == StoryRptPeriod)
+                {
+                    foreach (Task task in defect.Tasks)
+                    {
+                        switch (action)
+                        {
+                            case ProjectTotal.Estimate:
+                                decReturn = decReturn + task.Estimate;
+                                break;
+                            case ProjectTotal.ToDo:
+                                decReturn = decReturn + task.ToDo;
+                                break;
+                            case ProjectTotal.Actual:
+                                decReturn = decReturn + task.Actual;
+                                break;
+                            default:
+                                break;
+                        }
                     }
                 }
             }
@@ -1451,7 +1751,7 @@ namespace AutoReport
                 return false;
             }
 
-            ReportFile = ConfigReportPath + "\\" + System.DateTime.Now.ToString("ddMMMyyyy") + "-" + System.DateTime.Now.ToString("HHmm") + "_Report.txt";
+            //ReportFile = ConfigReportPath + "\\" + System.DateTime.Now.ToString("ddMMMyyyy") + "-" + System.DateTime.Now.ToString("HHmm") + "_Report.txt";
             LogFile = ConfigLogPath + "\\" + System.DateTime.Now.ToString("ddMMMyyyy") + "-" + System.DateTime.Now.ToString("HHmm") + "_Log.txt";
 
             return true;
@@ -1467,6 +1767,7 @@ namespace AutoReport
             // Now get any commandline args
             string[] CmdArgs = Environment.GetCommandLineArgs();
 
+            // Loop through all commandline args
             for (int LoopCtl = 0; LoopCtl < CmdArgs.Length; LoopCtl++)
             {
                 // Daily Stats = No Switch
@@ -1474,8 +1775,8 @@ namespace AutoReport
                 // Quarterly Stats = -Q#YYYY
                 // Annual Stats = -AYYYY
                 // Weekly Status Update = -W
-                string OpsModeSetting = CmdArgs[LoopCtl];
-                switch (OpsModeSetting.Substring(0, 2).ToUpper())
+                string CommandLinePart = CmdArgs[LoopCtl];
+                switch (CommandLinePart.Substring(0, 2).ToUpper())
                 {
                     case "/H":
                         // Message the user what the usage is
@@ -1483,19 +1784,22 @@ namespace AutoReport
                     case "-M":
                         // Format should be -M<number><Year>
                         OperatingMode = OperateMode.Monthly;
-                        ReportMonth = Convert.ToInt32(OpsModeSetting.Substring(2, 1));
-                        ReportYear = Convert.ToInt32(OpsModeSetting.Substring(3, 4));
+                        ReportMonth = Convert.ToInt32(CommandLinePart.Substring(2, 1));
+                        ReportYear = Convert.ToInt32(CommandLinePart.Substring(3, 4));
                         break;
                     case "-Q":
+                        // Format should be -Q<number><Year>
                         OperatingMode = OperateMode.Quarterly;
-                        ReportQuarter = Convert.ToInt32(OpsModeSetting.Substring(2, 1));
-                        ReportYear = Convert.ToInt32(OpsModeSetting.Substring(3, 4));
+                        ReportQuarter = Convert.ToInt32(CommandLinePart.Substring(2, 1));
+                        ReportYear = Convert.ToInt32(CommandLinePart.Substring(3, 4));
                         break;
                     case "-A":
+                        // Format should be -A<Year>
                         OperatingMode = OperateMode.Annual;
-                        ReportYear = Convert.ToInt32(OpsModeSetting.Substring(2, 4));
+                        ReportYear = Convert.ToInt32(CommandLinePart.Substring(2, 4));
                         break;
                     case "-W":
+                        // Format should be -W
                         OperatingMode = OperateMode.Weekly;
                         break;
                     default:
