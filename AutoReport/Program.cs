@@ -375,6 +375,7 @@ namespace AutoReport
         static void Main(string[] args)
         {
 
+            #region StartUp Section
             // Get the configuration information from config file
             if (!GetConfigSettings())
             {
@@ -388,6 +389,7 @@ namespace AutoReport
                 // 
                 GetCommandArgs();
             }
+            #endregion StartUp Section
 
             // Log the start of processing
             LogOutput("Started processing at " + DateTime.Now.ToLongTimeString() + " on " + DateTime.Now.ToLongDateString(), "Main", false);
@@ -416,13 +418,13 @@ namespace AutoReport
                     break;
             }
 
+            #region Gather from Rally
             // Create the Rally API object
             LogOutput("Creating reference to RallyAPI...", "Main", true);
             RallyAPI = new RallyRestApi();
 
             // Login to Rally
             LogOutput("Starting connection to Rally...", "Main", true);
-            // By leaving the server identifier off, it uses the default server
             try
             {
                 RallyAPI.Authenticate(ConfigRallyUID, ConfigRallyPWD);
@@ -567,7 +569,9 @@ namespace AutoReport
             }
             LogOutput("Done looping through all projects", "Main", false);
             LogOutput("Appending new project object to object 'CompleteProjectList'", "Main", true);
+            #endregion Gather from Rally
 
+            #region Calculation Section
             // We now have a full list of all projects with all complete information so
             // at this point we can calculate the Actuals for each project based on the reporting mode we are operating in
             switch (OperatingMode)
@@ -601,18 +605,8 @@ namespace AutoReport
                 case OperateMode.Weekly:
                     break;
             }
+            #endregion
 
-            //AllProjectInfo = new List<Project>();
-            //LogOutput("Calling 'CalculateDailyTotals' with " + CompleteProjectList.Count + " complete projects...", "Main", true);
-            //AllProjectInfo = CalculateDailyTotals(CompleteProjectList);
-            //LogOutput("Done with 'CalculateDailyTotals'", "Main", true);
-
-            //// Now create the final report
-            //LogOutput("Calling 'CreateDailyReport'...", "Main", true);
-            //CreateDailyReport(AllProjectInfo);
-            //LogOutput("Done with 'CreateDailyReport'...", "Main", true);
-
-            //CompleteProjectList[0].UserStories[0].Tasks[0].Actual
             DateTime dtEndTime = DateTime.Now;
             string strTotSeconds = dtEndTime.Subtract(dtStartTime).TotalSeconds.ToString();
             LogOutput("Completed processing at " + DateTime.Now.ToLongTimeString() + " on " + DateTime.Now.ToLongDateString() + " - Total Processing Time: " + strTotSeconds + " seconds", "Main", false);
@@ -636,15 +630,17 @@ namespace AutoReport
             System.Text.RegularExpressions.Regex myReg = new System.Text.RegularExpressions.Regex(",");
             IgnoreList = myReg.Split(strIgnoreList);
             LogOutput("Looping for each initiative to get full information...", "GetInitiativeList", false);
-            //foreach (string stringpart in IgnoreList)
-            //{
+
             // Grab all Information for the given initiative
             LogOutput("Using RallyAPI to request information for all Initiatives...", "GetInitiativeList", true);
             LogOutput("Building Rally Request...", "GetInitiativeList", true);
             Request rallyRequest = new Request("PortfolioItem/Initiative");
+            // You can get the project reference for this next part by editing the main project "" and taking the URL.  We want the part after the word 'project'
+            // so this is currently https://rally1.rallydev.com/#/22986814983d/detail/project/22986814983
+            rallyRequest.Project = "/project/22986814983";  // This must be a reference to the project.  This project equates to "CTO Customer & Innovation Labs"
+            rallyRequest.ProjectScopeDown = true;   // Specify that we want any projects under the main one
             rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Owner", "PlannedStartDate", "PlannedEndDate", "Description", "State" };
-            //rallyRequest.Query = new Query("FormattedID", Query.Operator.Equals, stringpart.Trim());
-            rallyRequest.Query = new Query("Project.Name", Query.Operator.Equals, "CTO Customer & Innovation Labs");
+            rallyRequest.Query = new Query("FormattedID", Query.Operator.DoesNotEqual, "I68");  // We really don't want a filter, but you need a query string of some sort
             LogOutput("Running Rally Query request...", "GetInitiativeList", true);
             QueryResult rallyResult = RallyAPI.Query(rallyRequest);
             LogOutput("Looping through Query result...", "GetInitiativeList", true);
@@ -667,7 +663,7 @@ namespace AutoReport
                     listReturn.Add(initiative);
                 }
             }
-            //}
+
             LogOutput("Completed processing all initiatives, returning list", "GetInitiativeList", true);
 
             return listReturn;
@@ -738,7 +734,7 @@ namespace AutoReport
                 epic.State = RationalizeData(result["State"]);
                 epic.Description = RationalizeData(result["Description"]);
                 epic.ParentProject = ProjectName(ProjectID);
-                epic.Release = RationalizeData(result["State"]);
+                epic.Release = RationalizeData(result["Release"]);
                 listReturn.Add(epic);
             }
 
@@ -816,7 +812,7 @@ namespace AutoReport
                 story.State = RationalizeData(result["ScheduleState"]);
                 story.Children = RationalizeData(result["DirectChildrenCount"]);
                 story.Description = RationalizeData(result["Description"]);
-                story.ParentProject = "";
+                story.ParentProject = ParentID;
                 story.PlanEstimate = RationalizeData(result["PlanEstimate"], true);
                 story.Tasks = GetTasksForUserStory(story.FormattedID);
                 story.Blocked = RationalizeData(result["Blocked"]);
@@ -900,6 +896,10 @@ namespace AutoReport
                                     case ("User"):
                                         return resp["DisplayName"];
                                     case ("State"):
+                                        return resp["Name"];
+                                    case ("Release"):
+                                        return resp["Name"];
+                                    case ("Iteration"):
                                         return resp["Name"];
                                     default:
                                         return "";
@@ -1062,6 +1062,10 @@ namespace AutoReport
                                     case ("User"):
                                         return resp["DisplayName"];
                                     case ("State"):
+                                        return resp["Name"];
+                                    case ("Release"):
+                                        return resp["Name"];
+                                    case ("Iteration"):
                                         return resp["Name"];
                                     default:
                                         return "";
@@ -1358,7 +1362,7 @@ namespace AutoReport
         /// </summary>
         /// <param name="projects">Project list, with calculations, to use for report</param>
         /// <param name="ReportingPeriod">Quarter reporting on</param>
-        private static void CreateQuarterReport(List<Project> projects, string ReportingPeriod)
+        private static void CreateQuarterReport(List<Project> projects, string ReportPeriod)
         {
 
             string strOutLine = "";
@@ -1387,7 +1391,7 @@ namespace AutoReport
 
             foreach (Project proj in projects)
             {
-                strOutLine = ReportingPeriod + " Final Totals for: " + proj.Name + "\r\n";
+                strOutLine = ReportPeriod + " Final Totals for: " + proj.Name + "\r\n";
                 strOutLine = strOutLine + "   Total Estimate for Stories --> " + proj.StoryEstimate + "\r\n";
                 strOutLine = strOutLine + "   Total ToDo for Stories --> " + proj.StoryToDo + "\r\n";
                 strOutLine = strOutLine + "   Total Actual for Stories --> " + proj.StoryActual + "\r\n";
@@ -1443,7 +1447,7 @@ namespace AutoReport
                     sqlCmd.Parameters.Add(new SqlParameter("ReportDate", System.DateTime.Now));
                     sqlCmd.Parameters.Add(new SqlParameter("UpdateOwner", proj.UpdateOwner));
                     sqlCmd.Parameters.Add(new SqlParameter("UpdateOwner", proj.UpdateOwner));
-                    sqlCmd.Parameters.Add(new SqlParameter("ReportingPeriod", ReportingPeriod));
+                    sqlCmd.Parameters.Add(new SqlParameter("ReportingPeriod", ReportPeriod));
                     try
                     {
                         sqlCmd.ExecuteNonQuery();
@@ -1644,7 +1648,14 @@ namespace AutoReport
             {
                 // Set the string to indicate the story period
                 // Releases are quarterly and of the format--> 2016'Q1 CTO C&I Labs
-                StoryRptPeriod = "Q" + story.Release.Substring(6, 1) + story.Release.Substring(0, 4);
+                if (story.Release != "")
+                {
+                    StoryRptPeriod = "Q" + story.Release.Substring(6, 1) + story.Release.Substring(0, 4);
+                }
+                else
+                {
+                    StoryRptPeriod = "";
+                }
                 if (ReportPeriod == StoryRptPeriod)
                 {
                     foreach (Task task in story.Tasks)
@@ -1692,7 +1703,14 @@ namespace AutoReport
             {
                 // Set the string to indicate the story period
                 // Releases are quarterly and of the format--> 2016'Q1 CTO C&I Labs
-                StoryRptPeriod = "Q" + defect.Release.Substring(6, 1) + defect.Release.Substring(0, 4);
+                if (defect.Release != "")
+                {
+                    StoryRptPeriod = "Q" + defect.Release.Substring(6, 1) + defect.Release.Substring(0, 4);
+                }
+                else
+                {
+                    StoryRptPeriod = "";
+                }
                 if (ReportPeriod == StoryRptPeriod)
                 {
                     foreach (Task task in defect.Tasks)
@@ -1751,7 +1769,6 @@ namespace AutoReport
                 return false;
             }
 
-            //ReportFile = ConfigReportPath + "\\" + System.DateTime.Now.ToString("ddMMMyyyy") + "-" + System.DateTime.Now.ToString("HHmm") + "_Report.txt";
             LogFile = ConfigLogPath + "\\" + System.DateTime.Now.ToString("ddMMMyyyy") + "-" + System.DateTime.Now.ToString("HHmm") + "_Log.txt";
 
             return true;
@@ -1776,6 +1793,7 @@ namespace AutoReport
                 // Annual Stats = -AYYYY
                 // Weekly Status Update = -W
                 string CommandLinePart = CmdArgs[LoopCtl];
+
                 switch (CommandLinePart.Substring(0, 2).ToUpper())
                 {
                     case "/H":
@@ -1801,9 +1819,6 @@ namespace AutoReport
                     case "-W":
                         // Format should be -W
                         OperatingMode = OperateMode.Weekly;
-                        break;
-                    default:
-                        OperatingMode = OperateMode.Daily;
                         break;
                 }
             }
@@ -1832,6 +1847,5 @@ namespace AutoReport
             return false;
 
         }
-
     }
 }
