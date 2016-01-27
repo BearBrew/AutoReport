@@ -1333,7 +1333,6 @@ namespace AutoReport
                     sqlCmd.Parameters.Add(new SqlParameter("HoursStoryActual", proj.StoryActual));
                     sqlCmd.Parameters.Add(new SqlParameter("ReportDate", System.DateTime.Now));
                     sqlCmd.Parameters.Add(new SqlParameter("UpdateOwner", proj.UpdateOwner));
-                    sqlCmd.Parameters.Add(new SqlParameter("UpdateOwner", proj.UpdateOwner));
                     try
                     {
                         sqlCmd.ExecuteNonQuery();
@@ -1445,7 +1444,6 @@ namespace AutoReport
                     sqlCmd.Parameters.Add(new SqlParameter("HoursStoryToDo", proj.StoryToDo));
                     sqlCmd.Parameters.Add(new SqlParameter("HoursStoryActual", proj.StoryActual));
                     sqlCmd.Parameters.Add(new SqlParameter("ReportDate", System.DateTime.Now));
-                    sqlCmd.Parameters.Add(new SqlParameter("UpdateOwner", proj.UpdateOwner));
                     sqlCmd.Parameters.Add(new SqlParameter("UpdateOwner", proj.UpdateOwner));
                     sqlCmd.Parameters.Add(new SqlParameter("ReportingPeriod", ReportPeriod));
                     try
