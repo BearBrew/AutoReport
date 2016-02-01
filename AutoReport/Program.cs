@@ -1548,7 +1548,15 @@ namespace AutoReport
                 newproject.DefectEstimate = CreateQuarterTotal(newproject.Defects, ProjectTotal.Estimate, ReportQuarter, ReportYear);
                 newproject.DefectToDo = CreateQuarterTotal(newproject.Defects, ProjectTotal.ToDo, ReportQuarter, ReportYear);
                 newproject.DefectActual = CreateQuarterTotal(newproject.Defects, ProjectTotal.Actual, ReportQuarter, ReportYear);
-                DestinationProjectList.Add(newproject);
+                if (newproject.StoryEstimate != 0 ||
+                    newproject.StoryToDo != 0 ||
+                    newproject.StoryActual != 0 ||
+                    newproject.DefectEstimate != 0 ||
+                    newproject.DefectToDo != 0 ||
+                    newproject.DefectActual != 0)
+                {
+                    DestinationProjectList.Add(newproject);
+                }
             }
 
             return DestinationProjectList;
