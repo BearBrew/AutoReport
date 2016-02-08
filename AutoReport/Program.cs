@@ -1,18 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Collections;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using System.Globalization;
+using System.Text.RegularExpressions;
 using Rally.RestApi;
-using Rally.RestApi.Auth;
-using Rally.RestApi.Connection;
-using Rally.RestApi.Exceptions;
 using Rally.RestApi.Json;
 using Rally.RestApi.Response;
 using System.Configuration;
-//using Excel = Microsoft.Office.Interop.Excel;
-//using Word = Microsoft.Office.Interop.Word;
 using System.Data.SqlClient;
 
 namespace AutoReport
@@ -58,6 +51,10 @@ namespace AutoReport
         /// </summary>
         public static string ConfigLogPath;
         /// <summary>
+        /// Configuration item for end-of-line indicate in project status update
+        /// </summary>
+        public static string ConfigStatusEOL;
+        /// <summary>
         /// Configuration item for UNC Report Location
         /// </summary>
         public static string ConfigReportPath;
@@ -72,9 +69,12 @@ namespace AutoReport
         public static string ConfigDBUID;
         public static string ConfigDBPWD;
         public static OperateMode OperatingMode;
+        public static int ReportDayNum;
+        public static int ReportWeekNum;
         public static int ReportMonth;
         public static int ReportQuarter;
         public static int ReportYear;
+        public static DateTime ReportingDay;
 
         // Global level structures
         public struct Initiative
@@ -103,6 +103,10 @@ namespace AutoReport
             /// Planned End Date
             /// </summary>
             public System.DateTime PlannedEndDate;
+            /// <summary>
+            /// Actual End Date
+            /// </summary>
+            public System.DateTime ActualEndDate;
             /// <summary>
             /// Current State of the Initiative
             /// </summary>
@@ -135,6 +139,10 @@ namespace AutoReport
             /// Planned End date of the Project
             /// </summary>
             public System.DateTime PlannedEndDate;
+            /// <summary>
+            /// Actual End date of the Project
+            /// </summary>
+            public System.DateTime ActualEndDate;
             /// <summary>
             /// Running status updates of the Project
             /// </summary>
@@ -199,6 +207,10 @@ namespace AutoReport
             /// Total for all 'Actuals' of Defects
             /// </summary>
             public decimal DefectActual;
+            /// <summary>
+            /// Which 'Project' or 'Team' is this for?
+            /// </summary>
+            public string ScrumTeam;
         }
 
         public struct Epic
@@ -223,6 +235,10 @@ namespace AutoReport
             /// Planned End date of the Epic
             /// </summary>
             public System.DateTime PlannedEndDate;
+            /// <summary>
+            /// Actual End date of the Epic
+            /// </summary>
+            public System.DateTime ActualEndDate;
             /// <summary>
             /// State of the Epic
             /// </summary>
@@ -327,6 +343,10 @@ namespace AutoReport
             /// Current Status for the Task
             /// </summary>
             public string State;
+            /// <summary>
+            /// Last Update Date/Time for the Task
+            /// </summary>
+            public DateTime LastUpdate;
         }
 
         public struct Defect
@@ -370,23 +390,40 @@ namespace AutoReport
         }
 
         public enum ProjectTotal { Estimate = 1, ToDo, Actual };
-        public enum OperateMode { Daily = 1, Monthly, Quarterly, Annual, Weekly };
+        public enum OperateMode { Daily = 1, Weekly, Quarterly, Annual };
 
         static void Main(string[] args)
         {
 
             #region StartUp Section
+            // Initialize all variables
+            ConfigRallyUID = "";
+            ConfigRallyPWD = "";
+            ConfigLogPath = "";
+            ConfigStatusEOL = "";
+            ConfigReportPath = "";
+            ReportFile = "";
+            LogFile = "";
+            ConfigDBServer = "";
+            ConfigDBName = "";
+            ConfigDBUID = "";
+            ConfigDBPWD = "";
+            ReportDayNum = 0;
+            ReportWeekNum = 0;
+            ReportMonth = 0;
+            ReportQuarter = 0;
+            ReportYear = 0;
+
             // Get the configuration information from config file
             if (!GetConfigSettings())
             {
                 // If we can't get the configuration settings, we can't even log anything, so just terminate
-                return;
+                Environment.Exit(-1);
             }
 
             // Check for any commandline arguments
             if (args.Length != 0)
             {
-                // 
                 GetCommandArgs();
             }
             #endregion StartUp Section
@@ -399,10 +436,7 @@ namespace AutoReport
             switch (OperatingMode)
             {
                 case OperateMode.Daily:
-                    LogOutput("Operating in Daily Mode...", "Main", false);
-                    break;
-                case OperateMode.Monthly:
-                    LogOutput("Operating in Monthly mode...Processing for month " + ReportMonth.ToString(), "Main", false);
+                    LogOutput("Operating in Daily Mode...Processing for Day " + ReportingDay.ToString("dd-MMM-yyyy"), "Main", false);
                     break;
                 case OperateMode.Quarterly:
                     LogOutput("Operating in Quarterly mode...Processing for Quarter Q" + ReportQuarter.ToString() + "Y" + ReportYear.ToString(), "Main", false);
@@ -411,7 +445,7 @@ namespace AutoReport
                     LogOutput("Operating in Annual mode...Processing for year " + ReportYear.ToString(), "Main", false);
                     break;
                 case OperateMode.Weekly:
-                    LogOutput("Operating in Weekly mode...", "Main", false);
+                    LogOutput("Operating in Weekly mode...Processing for Day " + ReportingDay.ToString("dd-MMM-yyyy"), "Main", false);
                     break;
                 default:
                     LogOutput("Unknown Operating mode...assuming Daily...", "Main", false);
@@ -433,7 +467,7 @@ namespace AutoReport
                 {
                     // We did not actually connect
                     LogOutput("Unable to connect to Rally and establish session.  Application will terminate.", "Main", false);
-                    return;
+                    Environment.Exit(-1);
                 }
                 else
                 {
@@ -441,7 +475,7 @@ namespace AutoReport
                     {
                         LogOutput("RallyAPI.ConnectionInfo: " + RallyAPI.ConnectionInfo.ToString(), "Main", false);
                         LogOutput("Unable to authenticate with Rally.  Application will terminate.", "Main", false);
-                        return;
+                        Environment.Exit(-1);
                     }
                     else
                     {
@@ -467,8 +501,8 @@ namespace AutoReport
                 // Could not get the Initiatives...or nothing to report on, so stop
                 LogOutput("Unable to open Initiative list or no Initiatives to report on.  Application will terminate.", "Main", false);
                 InitiativeList.Clear();
-                RallyAPI.Logout();  // Disconnect from Rally
-                return;             // End Program
+                RallyAPI.Logout();      // Disconnect from Rally
+                Environment.Exit(-1);   // End Program
             }
             LogOutput("Retrieved " + InitiativeList.Count + " Initiatives to report on", "Main", false);
 
@@ -577,17 +611,16 @@ namespace AutoReport
             switch (OperatingMode)
             {
                 case OperateMode.Daily:
+                    // This mode runs every day and simply keeps running total of time with daily inserts for each project
                     AllProjectInfo = new List<Project>();
                     LogOutput("Calling 'CalculateDailyTotals' with " + CompleteProjectList.Count + " complete projects...", "Main", true);
-                    AllProjectInfo = CalculateDailyTotals(CompleteProjectList);
+                    AllProjectInfo = CalculateDailyTotals(CompleteProjectList, ReportingDay);
                     LogOutput("Done with 'CalculateDailyTotals'", "Main", true);
 
                     // Now create the final report
                     LogOutput("Calling 'CreateDailyReport'...", "Main", true);
                     CreateDailyReport(AllProjectInfo);
                     LogOutput("Done with 'CreateDailyReport'...", "Main", true);
-                    break;
-                case OperateMode.Monthly:
                     break;
                 case OperateMode.Quarterly:
                     AllProjectInfo = new List<Project>();
@@ -603,6 +636,17 @@ namespace AutoReport
                 case OperateMode.Annual:
                     break;
                 case OperateMode.Weekly:
+                    // This mode is intended to run on Sunday in order to run stats for up-to-and-including current week for projects.  The "Project Update"
+                    // is also included so the single table can be queried
+                    AllProjectInfo = new List<Project>();
+                    LogOutput("Calling 'CalculateWeeklyTotals' with " + CompleteProjectList.Count + " complete projects...", "Main", true);
+                    AllProjectInfo = CalculateWeeklyTotals(CompleteProjectList, ReportingDay);
+                    LogOutput("Done with 'CalculateWeeklyTotals'", "Main", true);
+
+                    // Now create the weekly report
+                    LogOutput("Calling 'CreateWeeklyReport'...", "Main", true);
+                    CreateWeeklyReport(AllProjectInfo);
+                    LogOutput("Done with 'CreateWeeklyReport'...", "Main", true);
                     break;
             }
             #endregion
@@ -610,6 +654,7 @@ namespace AutoReport
             DateTime dtEndTime = DateTime.Now;
             string strTotSeconds = dtEndTime.Subtract(dtStartTime).TotalSeconds.ToString();
             LogOutput("Completed processing at " + DateTime.Now.ToLongTimeString() + " on " + DateTime.Now.ToLongDateString() + " - Total Processing Time: " + strTotSeconds + " seconds", "Main", false);
+            Environment.Exit(0);
 
         }
 
@@ -639,7 +684,7 @@ namespace AutoReport
             // so this is currently https://rally1.rallydev.com/#/22986814983d/detail/project/22986814983
             rallyRequest.Project = "/project/22986814983";  // This must be a reference to the project.  This project equates to "CTO Customer & Innovation Labs"
             rallyRequest.ProjectScopeDown = true;   // Specify that we want any projects under the main one
-            rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Owner", "PlannedStartDate", "PlannedEndDate", "Description", "State" };
+            rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Owner", "PlannedStartDate", "PlannedEndDate", "ActualEndDate", "Description", "State" };
             rallyRequest.Query = new Query("FormattedID", Query.Operator.DoesNotEqual, "I68");  // We really don't want a filter, but you need a query string of some sort
             LogOutput("Running Rally Query request...", "GetInitiativeList", true);
             QueryResult rallyResult = RallyAPI.Query(rallyRequest);
@@ -657,7 +702,8 @@ namespace AutoReport
                     initiative.Owner = RationalizeData(result["Owner"]);
                     initiative.PlannedStartDate = Convert.ToDateTime(result["PlannedStartDate"]);
                     initiative.PlannedEndDate = Convert.ToDateTime(result["PlannedEndDate"]);
-                    initiative.Description = RationalizeData(result["Description"]);
+                    initiative.ActualEndDate = Convert.ToDateTime(result["ActualEndDate"]);
+                    initiative.Description = GetPlainTextFromHtml(RationalizeData(result["Description"]));
                     initiative.State = RationalizeData(result["State"]);
                     LogOutput("Appending new initiative object to return list...", "GetInitiativeList", true);
                     listReturn.Add(initiative);
@@ -680,8 +726,9 @@ namespace AutoReport
 
             // Grab all Features under the given initiative
             Request rallyRequest = new Request("PortfolioItem/Feature");
-            rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Owner", "PlannedStartDate", "PlannedEndDate",
-                "c_ProjectUpdate", "c_RevokedReason", "State", "ValueScore", "Description", "Expedite", "c_UpdateOwner"};
+            rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Owner", "PlannedStartDate",
+                "ActualEndDate", "c_ProjectUpdate", "c_RevokedReason", "State", "ValueScore", "Description",
+                "Expedite", "c_UpdateOwner", "c_Stakeholder","Project" };
             rallyRequest.Query = new Query("Parent.Name", Query.Operator.Equals, InitiativeID);
             QueryResult rallyResult = RallyAPI.Query(rallyRequest);
             foreach (var result in rallyResult.Results)
@@ -693,15 +740,17 @@ namespace AutoReport
                 proj.Owner = RationalizeData(result["Owner"]);
                 proj.PlannedEndDate = Convert.ToDateTime(result["PlannedEndDate"]);
                 proj.PlannedStartDate = Convert.ToDateTime(result["PlannedStartDate"]);
-                proj.StatusUpdate = RationalizeData(result["c_ProjectUpdate"]);
+                proj.ActualEndDate = Convert.ToDateTime(result["ActualEndDate"]);
+                proj.StatusUpdate = GetPlainTextFromHtml(RationalizeData(result["c_ProjectUpdate"]));
                 proj.RevokedReason = RationalizeData(result["c_RevokedReason"]);
                 proj.OpportunityAmount = RationalizeData(result["ValueScore"]);
                 proj.State = RationalizeData(result["State"]);
-                proj.StakeHolder = RationalizeData(result["c_StakeHolder"]);
-                proj.Description = RationalizeData(result["Description"]);
+                proj.StakeHolder = RationalizeData(result["c_Stakeholder"]);
+                proj.Description = GetPlainTextFromHtml(RationalizeData(result["Description"]));
                 proj.Expedite = RationalizeData(result["Expedite"]);
                 proj.UpdateOwner = RationalizeData(result["c_UpdateOwner"]);
                 proj.Initiative = InitiativeID;
+                proj.ScrumTeam = RationalizeData(result["Project"]);
                 listReturn.Add(proj);
             }
 
@@ -720,7 +769,7 @@ namespace AutoReport
             // Grab all Epics under the given project
             Request rallyRequest = new Request("PortfolioItem/Epic");
             rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Owner", "PlannedEndDate",
-                "PlannedStartDate", "State", "Description", "Release" };
+                "PlannedStartDate","ActualEndDate", "State", "Description", "Release" };
             rallyRequest.Query = new Query("Parent.FormattedID", Query.Operator.Equals, ProjectID);
             QueryResult rallyResult = RallyAPI.Query(rallyRequest);
             foreach (var result in rallyResult.Results)
@@ -730,6 +779,7 @@ namespace AutoReport
                 epic.FormattedID = RationalizeData(result["FormattedID"]);
                 epic.Owner = RationalizeData(result["Owner"]);
                 epic.PlannedEndDate = Convert.ToDateTime(result["PlannedEndDate"]);
+                epic.ActualEndDate = Convert.ToDateTime(result["ActualEndDate"]);
                 epic.PlannedStartDate = Convert.ToDateTime(result["PlannedStartDate"]);
                 epic.State = RationalizeData(result["State"]);
                 epic.Description = RationalizeData(result["Description"]);
@@ -843,7 +893,7 @@ namespace AutoReport
 
             // Grab all Tasks under the given Story
             Request rallyRequest = new Request("Tasks");
-            rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Estimate", "ToDo", "Actuals", "Owner", "State", "Description" };
+            rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Estimate", "ToDo", "Actuals", "Owner", "State", "Description", "LastUpdateDate" };
             rallyRequest.Query = new Query("WorkProduct.FormattedID", Query.Operator.Equals, StoryID);
             QueryResult rallyResult = RallyAPI.Query(rallyRequest);
             foreach (var result in rallyResult.Results)
@@ -857,6 +907,7 @@ namespace AutoReport
                 task.Actual = (decimal)RationalizeData(result["Actuals"], true);
                 task.State = RationalizeData(result["State"]);
                 task.Description = RationalizeData(result["Description"]);
+                task.LastUpdate = Convert.ToDateTime(RationalizeData(result["LastUpdateDate"]));
                 listReturn.Add(task);
             }
 
@@ -900,6 +951,8 @@ namespace AutoReport
                                     case ("Release"):
                                         return resp["Name"];
                                     case ("Iteration"):
+                                        return resp["Name"];
+                                    case ("Project"):
                                         return resp["Name"];
                                     default:
                                         return "";
@@ -1066,6 +1119,8 @@ namespace AutoReport
                                     case ("Release"):
                                         return resp["Name"];
                                     case ("Iteration"):
+                                        return resp["Name"];
+                                    case ("Project"):
                                         return resp["Name"];
                                     default:
                                         return "";
@@ -1357,6 +1412,118 @@ namespace AutoReport
         }
 
         /// <summary>
+        /// Creates the weekly output report using the supplied project list
+        /// </summary>
+        /// <param name="projects">Project list, with calculations, to use for report</param>
+        private static void CreateWeeklyReport(List<Project> projects)
+        {
+
+            string strOutLine = "";
+            bool bDBConnected = false;
+
+            // Create the SQL Server database connection
+            SqlConnection sqlDatabase = new SqlConnection("Data Source=" + ConfigDBServer +
+                                                            ";Initial Catalog=" + ConfigDBName +
+                                                            ";User ID=" + ConfigDBUID +
+                                                            ";Password=" + ConfigDBPWD);
+
+            try
+            {
+                sqlDatabase.Open();
+                bDBConnected = true;
+            }
+            catch (SqlException ex)
+            {
+                LogOutput("Error connecting to SQL Server:" + ex.Message, "CreateWeeklyReport", false);
+                bDBConnected = false;
+            }
+
+            // Write the string to a file.
+            ReportFile = ConfigReportPath + "\\" + System.DateTime.Now.ToString("ddMMMyyyy") + "-" + System.DateTime.Now.ToString("HHmm") + "_WeeklyReport.txt";
+            System.IO.StreamWriter reportfile = new System.IO.StreamWriter(ReportFile);
+
+            foreach (Project proj in projects)
+            {
+                strOutLine = "Weekly Totals for: " + proj.Name + "\r\n";
+                strOutLine = strOutLine + "   Total Estimate for Stories --> " + proj.StoryEstimate + "\r\n";
+                strOutLine = strOutLine + "   Total ToDo for Stories --> " + proj.StoryToDo + "\r\n";
+                strOutLine = strOutLine + "   Total Actual for Stories --> " + proj.StoryActual + "\r\n";
+                strOutLine = strOutLine + "   Total Estimate for Defects --> " + proj.DefectEstimate + "\r\n";
+                strOutLine = strOutLine + "   Total ToDo for Defects --> " + proj.DefectToDo + "\r\n";
+                strOutLine = strOutLine + "   Total Actual for Defects --> " + proj.DefectActual + "\r\n";
+                strOutLine = strOutLine + " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" + "\r\n";
+                reportfile.WriteLine(strOutLine);
+
+                if (bDBConnected)
+                {
+                    SqlCommand sqlCmd = new SqlCommand("INSERT INTO dbo.WeeklyStats VALUES(@Initiative, @ProjectName, @OppAmount, @Owner, @PlannedStartDate, " +
+                            "@PlannedEndDate, @Expedite, @State, @CancelledReason, @HoursDefectsEstimate, @HoursDefectsToDo, @HoursDefectsActual, " +
+                            "@HoursStoryEstimate, @HoursStoryToDo, @HoursStoryActual, @ReportDate, @UpdateOwner, @ProjectUpdate)", sqlDatabase);
+                    sqlCmd.Parameters.Add(new SqlParameter("Initiative", proj.Initiative));
+                    sqlCmd.Parameters.Add(new SqlParameter("ProjectName", proj.Name));
+                    sqlCmd.Parameters.Add(new SqlParameter("OppAmount", proj.OpportunityAmount));
+                    sqlCmd.Parameters.Add(new SqlParameter("Owner", proj.Owner));
+                    // Check to make sure that PlannedStartDate is within date limits for SQL Server
+                    if (proj.PlannedStartDate < Convert.ToDateTime("1/1/2010") || proj.PlannedStartDate > Convert.ToDateTime("1/1/2099"))
+                    {
+                        sqlCmd.Parameters.Add(new SqlParameter("PlannedStartDate", System.Data.SqlTypes.SqlDateTime.MinValue));
+                    }
+                    else
+                    {
+                        sqlCmd.Parameters.Add(new SqlParameter("PlannedStartDate", proj.PlannedStartDate));
+                    }
+                    // Check to make sure that PlannedEndDate is within date limits for SQL Server
+                    if (proj.PlannedEndDate < Convert.ToDateTime("1/1/2010") || proj.PlannedEndDate > Convert.ToDateTime("1/1/2099"))
+                    {
+                        sqlCmd.Parameters.Add(new SqlParameter("PlannedEndDate", System.Data.SqlTypes.SqlDateTime.MinValue));
+                    }
+                    else
+                    {
+                        sqlCmd.Parameters.Add(new SqlParameter("PlannedEndDate", proj.PlannedStartDate));
+                    }
+                    if (proj.Expedite)
+                    {
+                        sqlCmd.Parameters.Add(new SqlParameter("Expedite", "Y"));
+                    }
+                    else
+                    {
+                        sqlCmd.Parameters.Add(new SqlParameter("Expedite", "N"));
+                    }
+                    sqlCmd.Parameters.Add(new SqlParameter("State", proj.State));
+                    sqlCmd.Parameters.Add(new SqlParameter("CancelledReason", proj.RevokedReason));
+                    sqlCmd.Parameters.Add(new SqlParameter("HoursDefectsEstimate", proj.DefectEstimate));
+                    sqlCmd.Parameters.Add(new SqlParameter("HoursDefectsToDo", proj.DefectToDo));
+                    sqlCmd.Parameters.Add(new SqlParameter("HoursDefectsActual", proj.DefectActual));
+                    sqlCmd.Parameters.Add(new SqlParameter("HoursStoryEstimate", proj.StoryEstimate));
+                    sqlCmd.Parameters.Add(new SqlParameter("HoursStoryToDo", proj.StoryToDo));
+                    sqlCmd.Parameters.Add(new SqlParameter("HoursStoryActual", proj.StoryActual));
+                    sqlCmd.Parameters.Add(new SqlParameter("ReportDate", System.DateTime.Now));
+                    sqlCmd.Parameters.Add(new SqlParameter("UpdateOwner", proj.UpdateOwner));
+                    sqlCmd.Parameters.Add(new SqlParameter("ProjectUpdate", proj.StatusUpdate));
+                    try
+                    {
+                        sqlCmd.ExecuteNonQuery();
+                    }
+                    catch (Exception ex)
+                    {
+                        LogOutput("Error on insert to SQL Server:" + ex.Message, "CreateWeeklyReport", false);
+                    }
+                    sqlCmd.Dispose();
+                }
+            }
+
+            // Close the file
+            reportfile.Flush();
+            reportfile.Close();
+            reportfile.Dispose();
+
+            // Close the database
+            sqlDatabase.Close();
+            sqlDatabase.Dispose();
+
+        }
+
+        /// <summary>
         /// Creates the final quarter output report using the supplied project list
         /// </summary>
         /// <param name="projects">Project list, with calculations, to use for report</param>
@@ -1473,7 +1640,7 @@ namespace AutoReport
         /// Runs through all tasks associated with a project (both User Stories and Defects) and totals the Estimates, ToDo, and Actuals
         /// </summary>
         /// <param name="SourceProjectList">Original Project list to calculate</param>
-        private static List<Project> CalculateDailyTotals(List<Project> SourceProjectList)
+        private static List<Project> CalculateDailyTotals(List<Project> SourceProjectList, DateTime ReportDay)
         {
 
             List<Project> DestinationProjectList = new List<Project>();
@@ -1498,12 +1665,56 @@ namespace AutoReport
                 newproject.StatusUpdate = proj.StatusUpdate;
                 newproject.UserStories = proj.UserStories;
                 newproject.Defects = proj.Defects;
-                newproject.StoryEstimate = CreateDailyTotal(newproject.UserStories, ProjectTotal.Estimate);
-                newproject.StoryToDo = CreateDailyTotal(newproject.UserStories, ProjectTotal.ToDo);
-                newproject.StoryActual = CreateDailyTotal(newproject.UserStories, ProjectTotal.Actual);
-                newproject.DefectEstimate = CreateDailyTotal(newproject.Defects, ProjectTotal.Estimate);
-                newproject.DefectToDo = CreateDailyTotal(newproject.Defects, ProjectTotal.ToDo);
-                newproject.DefectActual = CreateDailyTotal(newproject.Defects, ProjectTotal.Actual);
+                newproject.StoryEstimate = CreateDailyTotal(newproject.UserStories, ProjectTotal.Estimate, ReportDay);
+                newproject.StoryToDo = CreateDailyTotal(newproject.UserStories, ProjectTotal.ToDo, ReportDay);
+                newproject.StoryActual = CreateDailyTotal(newproject.UserStories, ProjectTotal.Actual, ReportDay);
+                newproject.DefectEstimate = CreateDailyTotal(newproject.Defects, ProjectTotal.Estimate, ReportDay);
+                newproject.DefectToDo = CreateDailyTotal(newproject.Defects, ProjectTotal.ToDo, ReportDay);
+                newproject.DefectActual = CreateDailyTotal(newproject.Defects, ProjectTotal.Actual, ReportDay);
+                DestinationProjectList.Add(newproject);
+            }
+
+            return DestinationProjectList;
+
+        }
+
+        /// <summary>
+        /// Runs through all tasks associated with a project (both User Stories and Defects) and totals the Estimates, ToDo, and Actuals
+        /// up to and including the current week.  Also saves the project update for the week.
+        /// </summary>
+        /// <param name="SourceProjectList">Original Project list to calculate</param>
+        private static List<Project> CalculateWeeklyTotals(List<Project> SourceProjectList, DateTime RptDate)
+        {
+
+            List<Project> DestinationProjectList = new List<Project>();
+
+            // Once again, we need to loop through all projects and build a new list 
+            // with the summary information included
+            foreach (Project proj in SourceProjectList)
+            {
+                Project newproject = new Project();
+                newproject.Description = proj.Description;
+                newproject.Expedite = proj.Expedite;
+                newproject.FormattedID = proj.FormattedID;
+                newproject.Initiative = proj.Initiative;
+                newproject.Name = proj.Name;
+                newproject.OpportunityAmount = proj.OpportunityAmount;
+                newproject.Owner = proj.Owner;
+                newproject.UpdateOwner = proj.UpdateOwner;
+                newproject.PlannedEndDate = proj.PlannedEndDate;
+                newproject.PlannedStartDate = proj.PlannedStartDate;
+                newproject.RevokedReason = proj.RevokedReason;
+                newproject.State = proj.State;
+                // Grab just the latest update
+                newproject.StatusUpdate = GetLatestStatus(proj.StatusUpdate);
+                newproject.UserStories = proj.UserStories;
+                newproject.Defects = proj.Defects;
+                newproject.StoryEstimate = CreateWeeklyTotal(newproject.UserStories, ProjectTotal.Estimate, RptDate);
+                newproject.StoryToDo = CreateWeeklyTotal(newproject.UserStories, ProjectTotal.ToDo, RptDate);
+                newproject.StoryActual = CreateWeeklyTotal(newproject.UserStories, ProjectTotal.Actual, RptDate);
+                newproject.DefectEstimate = CreateWeeklyTotal(newproject.Defects, ProjectTotal.Estimate, RptDate);
+                newproject.DefectToDo = CreateWeeklyTotal(newproject.Defects, ProjectTotal.ToDo, RptDate);
+                newproject.DefectActual = CreateWeeklyTotal(newproject.Defects, ProjectTotal.Actual, RptDate);
                 DestinationProjectList.Add(newproject);
             }
 
@@ -1568,7 +1779,7 @@ namespace AutoReport
         /// </summary>
         /// <param name="stories">List of stories to calculate</param>
         /// <param name="action">Indicates whether to total for Estimate, ToDo, or Actuals</param>
-        private static decimal CreateDailyTotal(List<UserStory> stories, ProjectTotal action)
+        private static decimal CreateYTDTotal(List<UserStory> stories, ProjectTotal action)
         {
 
             decimal decReturn = 0;
@@ -1597,12 +1808,81 @@ namespace AutoReport
             return decReturn;
 
         }
+
         /// <summary>
         /// Accepts list of all User Stories / Defects and calculates totals
         /// </summary>
         /// <param name="defects">List of Defects to calculate</param>
         /// <param name="action">Indicates whether to total for Estimate, ToDo, or Actuals</param>
-        private static decimal CreateDailyTotal(List<Defect> defects, ProjectTotal action)
+        private static decimal CreateYTDTotal(List<Defect> defects, ProjectTotal action)
+        {
+
+            decimal decReturn = 0;
+
+            foreach (Defect defect in defects)
+            {
+                foreach (Task task in defect.Tasks)
+                {
+                    switch (action)
+                    {
+                        case ProjectTotal.Estimate:
+                            decReturn = decReturn + task.Estimate;
+                            break;
+                        case ProjectTotal.ToDo:
+                            decReturn = decReturn + task.ToDo;
+                            break;
+                        case ProjectTotal.Actual:
+                            decReturn = decReturn + task.Actual;
+                            break;
+                        default:
+                            break;
+                    }
+                }
+            }
+
+            return decReturn;
+
+        }/// <summary>
+         /// Accepts list of all User Stories / Defects and calculates totals
+         /// </summary>
+         /// <param name="stories">List of stories to calculate</param>
+         /// <param name="action">Indicates whether to total for Estimate, ToDo, or Actuals</param>
+        private static decimal CreateDailyTotal(List<UserStory> stories, ProjectTotal action, DateTime dayfordaily)
+        {
+
+            decimal decReturn = 0;
+
+            foreach (UserStory story in stories)
+            {
+                foreach (Task task in story.Tasks)
+                {
+                    switch (action)
+                    {
+                        case ProjectTotal.Estimate:
+                            decReturn = decReturn + task.Estimate;
+                            break;
+                        case ProjectTotal.ToDo:
+                            decReturn = decReturn + task.ToDo;
+                            break;
+                        case ProjectTotal.Actual:
+                            decReturn = decReturn + task.Actual;
+                            break;
+                        default:
+                            break;
+                    }
+                }
+            }
+
+            return decReturn;
+
+        }
+
+        /// <summary>
+        /// Accepts list of all User Stories / Defects and calculates totals
+        /// </summary>
+        /// <param name="defects">List of Defects to calculate</param>
+        /// <param name="action">Indicates whether to total for Estimate, ToDo, or Actuals</param>
+        private static decimal CreateDailyTotal(List<Defect> defects, ProjectTotal action, DateTime dayfordaily)
         {
 
             decimal decReturn = 0;
@@ -1687,6 +1967,7 @@ namespace AutoReport
             return decReturn;
 
         }
+
         /// <summary>
         /// Accepts list of all User Stories / Defects and calculates totals
         /// </summary>
@@ -1753,6 +2034,7 @@ namespace AutoReport
             {
                 ConfigRallyUID = ConfigurationManager.AppSettings["RallyUser"];
                 ConfigRallyPWD = ConfigurationManager.AppSettings["RallyPass"];
+                ConfigStatusEOL = ConfigurationManager.AppSettings["StatusUpdateDiv"];
                 ConfigLogPath = ConfigurationManager.AppSettings["LogPath"];
                 ConfigReportPath = ConfigurationManager.AppSettings["ReportPath"];
                 ConfigDBServer = ConfigurationManager.AppSettings["DBServer"];
@@ -1793,23 +2075,16 @@ namespace AutoReport
             // Loop through all commandline args
             for (int LoopCtl = 0; LoopCtl < CmdArgs.Length; LoopCtl++)
             {
-                // Daily Stats = No Switch
-                // Monthly Stats = -M#YYYY
+                // Daily Stats = No Switch / -DddMonYYYY
+                // Weekly Status Update = -W or -WddMonYYYY
                 // Quarterly Stats = -Q#YYYY
                 // Annual Stats = -AYYYY
-                // Weekly Status Update = -W
                 string CommandLinePart = CmdArgs[LoopCtl];
 
                 switch (CommandLinePart.Substring(0, 2).ToUpper())
                 {
                     case "/H":
                         // Message the user what the usage is
-                        break;
-                    case "-M":
-                        // Format should be -M<number><Year>
-                        OperatingMode = OperateMode.Monthly;
-                        ReportMonth = Convert.ToInt32(CommandLinePart.Substring(2, 1));
-                        ReportYear = Convert.ToInt32(CommandLinePart.Substring(3, 4));
                         break;
                     case "-Q":
                         // Format should be -Q<number><Year>
@@ -1823,8 +2098,45 @@ namespace AutoReport
                         ReportYear = Convert.ToInt32(CommandLinePart.Substring(2, 4));
                         break;
                     case "-W":
-                        // Format should be -W
+                        // Format should be -W or -WddMonYYYY
                         OperatingMode = OperateMode.Weekly;
+                        if (CommandLinePart.Length > 2)
+                        {
+                            ReportDayNum = Convert.ToInt32(CommandLinePart.Substring(2, 2));
+                            ReportMonth = MonthNumber(CommandLinePart.Substring(4, 3));
+                            ReportYear = Convert.ToInt32(CommandLinePart.Substring(7, 4));
+                            ReportWeekNum = CultureInfo.CurrentCulture.Calendar.GetWeekOfYear(new DateTime(ReportYear, ReportMonth, ReportDayNum),
+                                CalendarWeekRule.FirstDay, DayOfWeek.Sunday);
+                        }
+                        else
+                        {
+                            ReportDayNum = DateTime.Today.Day;
+                            ReportMonth = DateTime.Today.Month;
+                            ReportYear = DateTime.Today.Year;
+                            ReportWeekNum = CultureInfo.CurrentCulture.Calendar.GetWeekOfYear(new DateTime(ReportYear, ReportMonth, ReportDayNum),
+                                CalendarWeekRule.FirstDay, DayOfWeek.Sunday);
+                        }
+                        break;
+                    case "-D":
+                        // Format should be -DddMonYYYY
+                        OperatingMode = OperateMode.Daily;
+                        ReportDayNum = Convert.ToInt32(CommandLinePart.Substring(2, 2));
+                        ReportMonth = MonthNumber(CommandLinePart.Substring(4, 3));
+                        ReportYear = Convert.ToInt32(CommandLinePart.Substring(7, 4));
+                        ReportingDay = new DateTime(ReportYear, ReportMonth, ReportDayNum);
+                        break;
+                    default:
+                        // If the last part of the commandline contains "EXE" then it is the full path to the executable and we don't care
+                        if (CommandLinePart.Contains(".exe"))
+                        {
+                            break;
+                        }
+                        // Format should be -DddMonYYYY
+                        OperatingMode = OperateMode.Daily;
+                        ReportDayNum = DateTime.Today.Day;
+                        ReportMonth = DateTime.Today.Month;
+                        ReportYear = DateTime.Today.Year;
+                        ReportingDay = new DateTime(ReportYear, ReportMonth, ReportDayNum);
                         break;
                 }
             }
@@ -1853,5 +2165,194 @@ namespace AutoReport
             return false;
 
         }
+
+        private static string GetPlainTextFromHtml(string htmlString)
+        {
+
+            string htmlTagPattern = "<.*?>";
+            var regexCss = new Regex("(\\<script(.+?)\\</script\\>)|(\\<style(.+?)\\</style\\>)", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+            htmlString = regexCss.Replace(htmlString, string.Empty);
+            htmlString = Regex.Replace(htmlString, htmlTagPattern, string.Empty);
+            htmlString = Regex.Replace(htmlString, @"^\s+$[\r\n]*", "", RegexOptions.Multiline);
+            htmlString = htmlString.Replace("&nbsp;", string.Empty);
+            htmlString = htmlString.Replace("&lt;", "<");
+            htmlString = htmlString.Replace("&gt;", ">");
+
+            return htmlString;
+
+        }
+
+        private static string GetLatestStatus(string FullStatus)
+        {
+
+            string RecentStatus = "";
+
+            if (FullStatus.IndexOf(ConfigStatusEOL) > 0)
+            {
+                RecentStatus = FullStatus.Substring(0, FullStatus.IndexOf(ConfigStatusEOL));
+            }
+            else
+            {
+                RecentStatus = FullStatus.Trim();
+            }
+
+            return RecentStatus;
+
+        }
+
+        private static int MonthNumber(string ShortMonth)
+        {
+
+            switch (ShortMonth.ToUpper())
+            {
+                case "JAN":
+                    return 1;
+                case "FEB":
+                    return 2;
+                case "MAR":
+                    return 3;
+                case "APR":
+                    return 4;
+                case "MAY":
+                    return 5;
+                case "JUN":
+                    return 6;
+                case "JUL":
+                    return 7;
+                case "AUG":
+                    return 8;
+                case "SEP":
+                    return 9;
+                case "OCT":
+                    return 10;
+                case "NOV":
+                    return 11;
+                case "DEC":
+                    return 12;
+                default:
+                    return 0;
+            }
+
+        }
+
+        public static void UsageMessage()
+        {
+
+
+
+        }
+
+        /// <summary>
+        /// Accepts list of all User Stories / Defects and calculates totals
+        /// </summary>
+        /// <param name="defects">List of Defects to calculate</param>
+        /// <param name="action">Indicates whether to total for Estimate, ToDo, or Actuals</param>
+        /// <param name="RptQuarter">Which quarter to generate totals for</param>
+        /// <param name="RptYear">Which Year to generate totals for</param>
+        private static decimal CreateWeeklyTotal(List<Defect> defects, ProjectTotal action, DateTime dayforweekly)
+        {
+
+            decimal decReturn = 0;
+            string ReportPeriod = "";
+            string StoryRptPeriod = "";
+
+            // Set the string to indicate the Reporting Period
+            //ReportPeriod = "Q" + RptQuarter + RptYear;
+
+            // Loop through the stories
+            foreach (Defect defect in defects)
+            {
+                // Set the string to indicate the story period
+                // Releases are quarterly and of the format--> 2016'Q1 CTO C&I Labs
+                if (defect.Release != "")
+                {
+                    StoryRptPeriod = "Q" + defect.Release.Substring(6, 1) + defect.Release.Substring(0, 4);
+                }
+                else
+                {
+                    StoryRptPeriod = "";
+                }
+                if (ReportPeriod == StoryRptPeriod)
+                {
+                    foreach (Task task in defect.Tasks)
+                    {
+                        switch (action)
+                        {
+                            case ProjectTotal.Estimate:
+                                decReturn = decReturn + task.Estimate;
+                                break;
+                            case ProjectTotal.ToDo:
+                                decReturn = decReturn + task.ToDo;
+                                break;
+                            case ProjectTotal.Actual:
+                                decReturn = decReturn + task.Actual;
+                                break;
+                            default:
+                                break;
+                        }
+                    }
+                }
+            }
+
+            return decReturn;
+
+        }
+
+        /// <summary>
+        /// Accepts list of all User Stories / Defects and calculates totals
+        /// </summary>
+        /// <param name="defects">List of Defects to calculate</param>
+        /// <param name="action">Indicates whether to total for Estimate, ToDo, or Actuals</param>
+        /// <param name="RptQuarter">Which quarter to generate totals for</param>
+        /// <param name="RptYear">Which Year to generate totals for</param>
+        private static decimal CreateWeeklyTotal(List<UserStory> stories, ProjectTotal action, DateTime dayforweekly)
+        {
+
+            decimal decReturn = 0;
+            string ReportPeriod = "";
+            string StoryRptPeriod = "";
+
+            // Set the string to indicate the Reporting Period
+            //ReportPeriod = "Q" + RptQuarter + RptYear;
+
+            // Loop through the stories
+            foreach (UserStory story in stories)
+            {
+                // Set the string to indicate the story period
+                // Releases are quarterly and of the format--> 2016'Q1 CTO C&I Labs
+                if (story.Release != "")
+                {
+                    StoryRptPeriod = "Q" + story.Release.Substring(6, 1) + story.Release.Substring(0, 4);
+                }
+                else
+                {
+                    StoryRptPeriod = "";
+                }
+                if (ReportPeriod == StoryRptPeriod)
+                {
+                    foreach (Task task in story.Tasks)
+                    {
+                        switch (action)
+                        {
+                            case ProjectTotal.Estimate:
+                                decReturn = decReturn + task.Estimate;
+                                break;
+                            case ProjectTotal.ToDo:
+                                decReturn = decReturn + task.ToDo;
+                                break;
+                            case ProjectTotal.Actual:
+                                decReturn = decReturn + task.Actual;
+                                break;
+                            default:
+                                break;
+                        }
+                    }
+                }
+            }
+
+            return decReturn;
+
+        }
+
     }
 }

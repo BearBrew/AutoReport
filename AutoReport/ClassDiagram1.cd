@@ -50,9 +50,14 @@
           <NewMemberFileName>Program.cs</NewMemberFileName>
         </TypeIdentifier>
       </Enum>
+      <Enum Name="AutoReport.Program.OperateMode" Collapsed="true">
+        <TypeIdentifier>
+          <NewMemberFileName>Program.cs</NewMemberFileName>
+        </TypeIdentifier>
+      </Enum>
     </NestedTypes>
     <TypeIdentifier>
-      <HashCode>AQkggAAEAAAUAAwAKEAAEADIBACAwSAQAAAABAAIAEA=</HashCode>
+      <HashCode>AQkggACHAAEQACwCKEKAEARoRADAkSAQAAACJAIoAEQ=</HashCode>
       <FileName>Program.cs</FileName>
     </TypeIdentifier>
   </Class>
