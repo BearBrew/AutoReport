@@ -62,18 +62,57 @@ namespace AutoReport
         /// Configuration item to enable full debug
         /// </summary>
         public static bool ConfigDebug;
+        /// <summary>
+        /// Full path to the output text file report
+        /// </summary>
         public static string ReportFile;
+        /// <summary>
+        /// Full path to the logfile
+        /// </summary>
         public static string LogFile;
+        /// <summary>
+        /// Name of the SQL Server the reporting database is running on
+        /// </summary>
         public static string ConfigDBServer;
+        /// <summary>
+        /// Name of the SQL Server database to use for reporting
+        /// </summary>
         public static string ConfigDBName;
+        /// <summary>
+        /// UID for the database connection
+        /// </summary>
         public static string ConfigDBUID;
+        /// <summary>
+        /// Password for database connection
+        /// </summary>
         public static string ConfigDBPWD;
+        /// <summary>
+        /// Reporting "Mode" we are running for
+        /// </summary>
         public static OperateMode OperatingMode;
+        /// <summary>
+        /// Day portion of reporting date
+        /// </summary>
         public static int ReportDayNum;
+        /// <summary>
+        /// Week number of year of reporting date
+        /// </summary>
         public static int ReportWeekNum;
+        /// <summary>
+        /// Month portion of reporting date
+        /// </summary>
         public static int ReportMonth;
+        /// <summary>
+        /// Quarter number of reporting date
+        /// </summary>
         public static int ReportQuarter;
+        /// <summary>
+        /// Year portion of reporting date
+        /// </summary>
         public static int ReportYear;
+        /// <summary>
+        /// Full Date/Time of reporting date
+        /// </summary>
         public static DateTime ReportingDay;
 
         // Global level structures
@@ -421,10 +460,19 @@ namespace AutoReport
                 Environment.Exit(-1);
             }
 
-            // Check for any commandline arguments
+            // Check for any commandline arguments.  If there are not any, assume a "Daily" operating mode and set
+            // the report date to yesterday (we don't want to report on today)
             if (args.Length != 0)
             {
                 GetCommandArgs();
+            }
+            else
+            {
+                OperatingMode = OperateMode.Daily;
+                ReportingDay = DateTime.Today.AddDays(-1);
+                ReportDayNum = ReportingDay.Day;
+                ReportMonth = ReportingDay.Month;
+                ReportYear = ReportingDay.Year;
             }
             #endregion StartUp Section
 
@@ -634,6 +682,15 @@ namespace AutoReport
                     LogOutput("Done with 'CreateQuarterReport'...", "Main", true);
                     break;
                 case OperateMode.Annual:
+                    AllProjectInfo = new List<Project>();
+                    LogOutput("Calling 'CalculateAnnualTotals' with " + CompleteProjectList.Count + " complete projects...", "Main", true);
+                    AllProjectInfo = CalculateAnnualTotals(CompleteProjectList, ReportYear);
+                    LogOutput("Done with 'CalculateAnnualTotals'", "Main", true);
+
+                    // Now create the final report
+                    LogOutput("Calling 'CreateAnnualReport'...", "Main", true);
+                    //CreateAnnualReport(AllProjectInfo, ReportYear);
+                    LogOutput("Done with 'CreateAnnualReport'...", "Main", true);
                     break;
                 case OperateMode.Weekly:
                     // This mode is intended to run on Sunday in order to run stats for up-to-and-including current week for projects.  The "Project Update"
@@ -725,12 +782,16 @@ namespace AutoReport
             List<Project> listReturn = new List<Project>();
 
             // Grab all Features under the given initiative
+            LogOutput("Using RallyAPI to request project information for all Initiatives...", "GetProjectsForInitiative", true);
+            LogOutput("Building Rally Request...", "GetProjectsForInitiative", true);
             Request rallyRequest = new Request("PortfolioItem/Feature");
             rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Owner", "PlannedStartDate",
                 "ActualEndDate", "c_ProjectUpdate", "c_RevokedReason", "State", "ValueScore", "Description",
                 "Expedite", "c_UpdateOwner", "c_Stakeholder","Project" };
             rallyRequest.Query = new Query("Parent.Name", Query.Operator.Equals, InitiativeID);
+            LogOutput("Running Rally Query request...", "GetProjectsForInitiative", true);
             QueryResult rallyResult = RallyAPI.Query(rallyRequest);
+            LogOutput("Looping through Query request...", "GetProjectsForInitiative", true);
             foreach (var result in rallyResult.Results)
             {
                 // Create and populate the Project object
@@ -751,8 +812,11 @@ namespace AutoReport
                 proj.UpdateOwner = RationalizeData(result["c_UpdateOwner"]);
                 proj.Initiative = InitiativeID;
                 proj.ScrumTeam = RationalizeData(result["Project"]);
+                LogOutput("Appending new project object to return list...", "GetProjectsForInitiative", true);
                 listReturn.Add(proj);
             }
+
+            LogOutput("Completed processing all projects, returning list", "GetProjectsForInitiative", true);
 
             return listReturn;
         }
@@ -767,11 +831,15 @@ namespace AutoReport
             List<Epic> listReturn = new List<Epic>();
 
             // Grab all Epics under the given project
+            LogOutput("Using RallyAPI to request epic information for all projects...", "GetEpicsForProject", true);
+            LogOutput("Building Rally Request...", "GetEpicsForProject", true);
             Request rallyRequest = new Request("PortfolioItem/Epic");
             rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Owner", "PlannedEndDate",
                 "PlannedStartDate","ActualEndDate", "State", "Description", "Release" };
             rallyRequest.Query = new Query("Parent.FormattedID", Query.Operator.Equals, ProjectID);
+            LogOutput("Running Rally Query request...", "GetEpicsForProject", true);
             QueryResult rallyResult = RallyAPI.Query(rallyRequest);
+            LogOutput("Looping through Query request...", "GetEpicsForProject", true);
             foreach (var result in rallyResult.Results)
             {
                 Epic epic = new Epic();
@@ -785,8 +853,11 @@ namespace AutoReport
                 epic.Description = RationalizeData(result["Description"]);
                 epic.ParentProject = ProjectName(ProjectID);
                 epic.Release = RationalizeData(result["Release"]);
+                LogOutput("Appending new epic object to return list...", "GetEpicsForProject", true);
                 listReturn.Add(epic);
             }
+
+            LogOutput("Completed processing all epics, returning list", "GetEpicsForProject", true);
 
             return listReturn;
 
@@ -802,10 +873,14 @@ namespace AutoReport
             List<Defect> listReturn = new List<Defect>();
 
             // Grab all Defects under the given User Story
+            LogOutput("Using RallyAPI to request defect information for all stories...", "GetDefectsForStory", true);
+            LogOutput("Building Rally Request...", "GetDefectsForStory", true);
             Request rallyRequest = new Request("Defect");
             rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Description", "Iteration", "Owner", "Release", "State" };
             rallyRequest.Query = new Query("Requirement.Name", Query.Operator.Equals, Parent.Name.Trim());
+            LogOutput("Running Rally Query request...", "GetDefectsForStory", true);
             QueryResult rallyResult = RallyAPI.Query(rallyRequest);
+            LogOutput("Looping through Query request...", "GetDefectsForStory", true);
             foreach (var result in rallyResult.Results)
             {
                 Defect defect = new Defect();
@@ -818,8 +893,11 @@ namespace AutoReport
                 defect.State = RationalizeData(result["State"]);
                 defect.ParentStory = Parent.FormattedID.Trim();
                 defect.Tasks = GetTasksForUserStory(defect.FormattedID);
+                LogOutput("Appending new defect object to return list...", "GetDefectsForStory", true);
                 listReturn.Add(defect);
             }
+
+            LogOutput("Completed processing all defects, returning list", "GetDefectsForStory", true);
 
             return listReturn;
 
@@ -836,6 +914,8 @@ namespace AutoReport
             List<UserStory> listReturn = new List<UserStory>();
 
             // Grab all UserStories under the given Epic
+            LogOutput("Using RallyAPI to request story information for all parents...", "GetUserStoriesPerParent", true);
+            LogOutput("Building Rally Request...", "GetUserStoriesPerParent", true);
             Request rallyRequest = new Request("HierarchicalRequirement");
             rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Release", "Iteration", "Blocked",
                 "Owner", "ScheduleState", "DirectChildrenCount", "Description", "PlanEstimate" };
@@ -850,7 +930,9 @@ namespace AutoReport
             {
                 rallyRequest.Query = new Query("Parent.FormattedID", Query.Operator.Equals, ParentID);
             }
+            LogOutput("Running Rally Query request...", "GetUserStoriesPerParent", true);
             QueryResult rallyResult = RallyAPI.Query(rallyRequest);
+            LogOutput("Looping through Query request...", "GetUserStoriesPerParent", true);
             foreach (var result in rallyResult.Results)
             {
                 UserStory story = new UserStory();
@@ -866,6 +948,7 @@ namespace AutoReport
                 story.PlanEstimate = RationalizeData(result["PlanEstimate"], true);
                 story.Tasks = GetTasksForUserStory(story.FormattedID);
                 story.Blocked = RationalizeData(result["Blocked"]);
+                LogOutput("Appending new story object to return list...", "GetUserStoriesPerParent", true);
                 listReturn.Add(story);
                 LogOutput(story.FormattedID + " " + story.Name, "GetUserStoriesPerParent", true);
 
@@ -877,6 +960,8 @@ namespace AutoReport
                     listReturn.AddRange(GetUserStoriesPerParent(story.FormattedID.Trim(), false));
                 }
             }
+
+            LogOutput("Completed processing all stories, returning list", "GetUserStoriesPerParent", true);
 
             return listReturn;
 
@@ -892,10 +977,14 @@ namespace AutoReport
             List<Task> listReturn = new List<Task>();
 
             // Grab all Tasks under the given Story
+            LogOutput("Using RallyAPI to request task information for all stories...", "GetTasksForUserStory", true);
+            LogOutput("Building Rally Request...", "GetTasksForUserStory", true);
             Request rallyRequest = new Request("Tasks");
             rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Estimate", "ToDo", "Actuals", "Owner", "State", "Description", "LastUpdateDate" };
             rallyRequest.Query = new Query("WorkProduct.FormattedID", Query.Operator.Equals, StoryID);
+            LogOutput("Running Rally Query request...", "GetTasksForUserStory", true);
             QueryResult rallyResult = RallyAPI.Query(rallyRequest);
+            LogOutput("Looping through Query request...", "GetTasksForUserStory", true);
             foreach (var result in rallyResult.Results)
             {
                 Task task = new Task();
@@ -908,8 +997,11 @@ namespace AutoReport
                 task.State = RationalizeData(result["State"]);
                 task.Description = RationalizeData(result["Description"]);
                 task.LastUpdate = Convert.ToDateTime(RationalizeData(result["LastUpdateDate"]));
+                LogOutput("Appending new task object to return list...", "GetTasksForUserStory", true);
                 listReturn.Add(task);
             }
+
+            LogOutput("Completed processing all tasks, returning list", "GetTasksForUserStory", true);
 
             return listReturn;
 
@@ -1252,6 +1344,7 @@ namespace AutoReport
         private static string ProjectName(string FormattedID)
         {
 
+            // Loop through the projects and compare the FormattedID numbers
             foreach (Project proj in BasicProjectList)
             {
                 if (proj.FormattedID == FormattedID)
@@ -1273,19 +1366,20 @@ namespace AutoReport
         private static void LogOutput(string Message, string Method, bool ExtendedLogInfo)
         {
 
+            // Open the StreamWriter to write to the file
             System.IO.StreamWriter logfile = new System.IO.StreamWriter(LogFile, true);
 
             // Check if we are in Debug mode or not
             switch (ConfigDebug)
             {
                 case true:
-                    // Full debug
+                    // Full debug...This dumps timing information, executing module, and some message about what we are doing
                     string strOutput = System.DateTime.Now.ToString("hh:mm:ss.ffffff") + "\tCURRENT MODULE: " + Method + "\tMESSAGE: " + Message;
                     Console.WriteLine(strOutput);
                     logfile.WriteLine(strOutput);
                     break;
                 default:
-                    // Basic logging
+                    // Basic logging...just dump basic info
                     if (!ExtendedLogInfo)
                     {
                         Console.WriteLine(Message);
@@ -1301,7 +1395,7 @@ namespace AutoReport
         }
 
         /// <summary>
-        /// Creates the final output report using the supplied project list
+        /// Creates the final Daily output report using the supplied project list
         /// </summary>
         /// <param name="projects">Project list, with calculations, to use for report</param>
         private static void CreateDailyReport(List<Project> projects)
@@ -1316,6 +1410,7 @@ namespace AutoReport
                                                             ";User ID=" + ConfigDBUID +
                                                             ";Password=" + ConfigDBPWD);
 
+            // Attempt to open the database
             try
             {
                 sqlDatabase.Open();
@@ -1527,6 +1622,7 @@ namespace AutoReport
         /// Creates the final quarter output report using the supplied project list
         /// </summary>
         /// <param name="projects">Project list, with calculations, to use for report</param>
+        /// <param name="ReportPeriod">Quarter/Year to report on in format Q#YYYY</param>
         /// <param name="ReportingPeriod">Quarter reporting on</param>
         private static void CreateQuarterReport(List<Project> projects, string ReportPeriod)
         {
@@ -1637,9 +1733,10 @@ namespace AutoReport
         }
 
         /// <summary>
-        /// Runs through all tasks associated with a project (both User Stories and Defects) and totals the Estimates, ToDo, and Actuals
+        /// Runs through all tasks associated with a project (both User Stories and Defects) and totals the Estimates, ToDo, and Actuals for the day
         /// </summary>
         /// <param name="SourceProjectList">Original Project list to calculate</param>
+        /// <param name="ReportDay">Full date/time to calculate totals for</param>
         private static List<Project> CalculateDailyTotals(List<Project> SourceProjectList, DateTime ReportDay)
         {
 
@@ -1671,7 +1768,15 @@ namespace AutoReport
                 newproject.DefectEstimate = CreateDailyTotal(newproject.Defects, ProjectTotal.Estimate, ReportDay);
                 newproject.DefectToDo = CreateDailyTotal(newproject.Defects, ProjectTotal.ToDo, ReportDay);
                 newproject.DefectActual = CreateDailyTotal(newproject.Defects, ProjectTotal.Actual, ReportDay);
-                DestinationProjectList.Add(newproject);
+                if (newproject.StoryEstimate != 0 ||
+                    newproject.StoryToDo != 0 ||
+                    newproject.StoryActual != 0 ||
+                    newproject.DefectEstimate != 0 ||
+                    newproject.DefectToDo != 0 ||
+                    newproject.DefectActual != 0)
+                {
+                    DestinationProjectList.Add(newproject);
+                }
             }
 
             return DestinationProjectList;
@@ -1680,9 +1785,10 @@ namespace AutoReport
 
         /// <summary>
         /// Runs through all tasks associated with a project (both User Stories and Defects) and totals the Estimates, ToDo, and Actuals
-        /// up to and including the current week.  Also saves the project update for the week.
+        ///  for the current week.  Also saves the project update for the week.
         /// </summary>
         /// <param name="SourceProjectList">Original Project list to calculate</param>
+        /// <param name="RptDate">Full date/time to calculate totals for.  This is used to find the Sunday and Saturday of the week for reporting</param>
         private static List<Project> CalculateWeeklyTotals(List<Project> SourceProjectList, DateTime RptDate)
         {
 
@@ -1715,7 +1821,68 @@ namespace AutoReport
                 newproject.DefectEstimate = CreateWeeklyTotal(newproject.Defects, ProjectTotal.Estimate, RptDate);
                 newproject.DefectToDo = CreateWeeklyTotal(newproject.Defects, ProjectTotal.ToDo, RptDate);
                 newproject.DefectActual = CreateWeeklyTotal(newproject.Defects, ProjectTotal.Actual, RptDate);
-                DestinationProjectList.Add(newproject);
+                if (newproject.StoryEstimate != 0 ||
+                    newproject.StoryToDo != 0 ||
+                    newproject.StoryActual != 0 ||
+                    newproject.DefectEstimate != 0 ||
+                    newproject.DefectToDo != 0 ||
+                    newproject.DefectActual != 0)
+                {
+                    DestinationProjectList.Add(newproject);
+                }
+            }
+
+            return DestinationProjectList;
+
+        }
+
+        /// <summary>
+        /// Runs through all tasks associated with a project (both User Stories and Defects) and totals the Estimates, ToDo, and Actuals
+        /// for the current year.
+        /// </summary>
+        /// <param name="SourceProjectList">Original Project list to calculate</param>
+        /// <param name="RptYear">Year to calculate totals for</param>
+        private static List<Project> CalculateAnnualTotals(List<Project> SourceProjectList, int RptYear)
+        {
+
+            List<Project> DestinationProjectList = new List<Project>();
+
+            // Once again, we need to loop through all projects and build a new list 
+            // with the summary information included
+            foreach (Project proj in SourceProjectList)
+            {
+                Project newproject = new Project();
+                newproject.Description = proj.Description;
+                newproject.Expedite = proj.Expedite;
+                newproject.FormattedID = proj.FormattedID;
+                newproject.Initiative = proj.Initiative;
+                newproject.Name = proj.Name;
+                newproject.OpportunityAmount = proj.OpportunityAmount;
+                newproject.Owner = proj.Owner;
+                newproject.UpdateOwner = proj.UpdateOwner;
+                newproject.PlannedEndDate = proj.PlannedEndDate;
+                newproject.PlannedStartDate = proj.PlannedStartDate;
+                newproject.RevokedReason = proj.RevokedReason;
+                newproject.State = proj.State;
+                // Grab just the latest update
+                newproject.StatusUpdate = GetLatestStatus(proj.StatusUpdate);
+                newproject.UserStories = proj.UserStories;
+                newproject.Defects = proj.Defects;
+                newproject.StoryEstimate = CreateAnnualTotal(newproject.UserStories, ProjectTotal.Estimate, RptYear);
+                newproject.StoryToDo = CreateAnnualTotal(newproject.UserStories, ProjectTotal.ToDo, RptYear);
+                newproject.StoryActual = CreateAnnualTotal(newproject.UserStories, ProjectTotal.Actual, RptYear);
+                newproject.DefectEstimate = CreateAnnualTotal(newproject.Defects, ProjectTotal.Estimate, RptYear);
+                newproject.DefectToDo = CreateAnnualTotal(newproject.Defects, ProjectTotal.ToDo, RptYear);
+                newproject.DefectActual = CreateAnnualTotal(newproject.Defects, ProjectTotal.Actual, RptYear);
+                if (newproject.StoryEstimate != 0 ||
+                    newproject.StoryToDo != 0 ||
+                    newproject.StoryActual != 0 ||
+                    newproject.DefectEstimate != 0 ||
+                    newproject.DefectToDo != 0 ||
+                    newproject.DefectActual != 0)
+                {
+                    DestinationProjectList.Add(newproject);
+                }
             }
 
             return DestinationProjectList;
@@ -1774,12 +1941,12 @@ namespace AutoReport
 
         }
 
-        /// <summary>
-        /// Accepts list of all User Stories / Defects and calculates totals
+        /// Accepts list of all User Stories / Defects and calculates daily totals
         /// </summary>
         /// <param name="stories">List of stories to calculate</param>
-        /// <param name="action">Indicates whether to total for Estimate, ToDo, or Actuals</param>
-        private static decimal CreateYTDTotal(List<UserStory> stories, ProjectTotal action)
+        /// <param name="Action">Indicates whether to total for Estimate, ToDo, or Actuals</param>
+        /// <param name="DayforDaily">Date to calculate totals for</param>
+        private static decimal CreateDailyTotal(List<UserStory> stories, ProjectTotal Action, DateTime DayforDaily)
         {
 
             decimal decReturn = 0;
@@ -1788,19 +1955,23 @@ namespace AutoReport
             {
                 foreach (Task task in story.Tasks)
                 {
-                    switch (action)
+                    if (DayforDaily.ToShortDateString() == task.LastUpdate.ToShortDateString())
                     {
-                        case ProjectTotal.Estimate:
-                            decReturn = decReturn + task.Estimate;
-                            break;
-                        case ProjectTotal.ToDo:
-                            decReturn = decReturn + task.ToDo;
-                            break;
-                        case ProjectTotal.Actual:
-                            decReturn = decReturn + task.Actual;
-                            break;
-                        default:
-                            break;
+                        switch (Action)
+                        {
+                            case ProjectTotal.Estimate:
+                                decReturn = decReturn + task.Estimate;
+                                break;
+                            case ProjectTotal.ToDo:
+                                decReturn = decReturn + task.ToDo;
+                                break;
+                            case ProjectTotal.Actual:
+                                decReturn = decReturn + task.Actual;
+                                break;
+                            default:
+                                break;
+                        }
+
                     }
                 }
             }
@@ -1810,11 +1981,12 @@ namespace AutoReport
         }
 
         /// <summary>
-        /// Accepts list of all User Stories / Defects and calculates totals
+        /// Accepts list of all User Stories / Defects and calculates daily totals
         /// </summary>
         /// <param name="defects">List of Defects to calculate</param>
-        /// <param name="action">Indicates whether to total for Estimate, ToDo, or Actuals</param>
-        private static decimal CreateYTDTotal(List<Defect> defects, ProjectTotal action)
+        /// <param name="Action">Indicates whether to total for Estimate, ToDo, or Actuals</param>
+        /// <param name="DayforDaily">Date to calculate totals for</param>
+        private static decimal CreateDailyTotal(List<Defect> defects, ProjectTotal Action, DateTime DayforDaily)
         {
 
             decimal decReturn = 0;
@@ -1823,52 +1995,22 @@ namespace AutoReport
             {
                 foreach (Task task in defect.Tasks)
                 {
-                    switch (action)
+                    if (DayforDaily.ToShortDateString() == task.LastUpdate.ToShortDateString())
                     {
-                        case ProjectTotal.Estimate:
-                            decReturn = decReturn + task.Estimate;
-                            break;
-                        case ProjectTotal.ToDo:
-                            decReturn = decReturn + task.ToDo;
-                            break;
-                        case ProjectTotal.Actual:
-                            decReturn = decReturn + task.Actual;
-                            break;
-                        default:
-                            break;
-                    }
-                }
-            }
-
-            return decReturn;
-
-        }/// <summary>
-         /// Accepts list of all User Stories / Defects and calculates totals
-         /// </summary>
-         /// <param name="stories">List of stories to calculate</param>
-         /// <param name="action">Indicates whether to total for Estimate, ToDo, or Actuals</param>
-        private static decimal CreateDailyTotal(List<UserStory> stories, ProjectTotal action, DateTime dayfordaily)
-        {
-
-            decimal decReturn = 0;
-
-            foreach (UserStory story in stories)
-            {
-                foreach (Task task in story.Tasks)
-                {
-                    switch (action)
-                    {
-                        case ProjectTotal.Estimate:
-                            decReturn = decReturn + task.Estimate;
-                            break;
-                        case ProjectTotal.ToDo:
-                            decReturn = decReturn + task.ToDo;
-                            break;
-                        case ProjectTotal.Actual:
-                            decReturn = decReturn + task.Actual;
-                            break;
-                        default:
-                            break;
+                        switch (Action)
+                        {
+                            case ProjectTotal.Estimate:
+                                decReturn = decReturn + task.Estimate;
+                                break;
+                            case ProjectTotal.ToDo:
+                                decReturn = decReturn + task.ToDo;
+                                break;
+                            case ProjectTotal.Actual:
+                                decReturn = decReturn + task.Actual;
+                                break;
+                            default:
+                                break;
+                        }
                     }
                 }
             }
@@ -1878,48 +2020,13 @@ namespace AutoReport
         }
 
         /// <summary>
-        /// Accepts list of all User Stories / Defects and calculates totals
-        /// </summary>
-        /// <param name="defects">List of Defects to calculate</param>
-        /// <param name="action">Indicates whether to total for Estimate, ToDo, or Actuals</param>
-        private static decimal CreateDailyTotal(List<Defect> defects, ProjectTotal action, DateTime dayfordaily)
-        {
-
-            decimal decReturn = 0;
-
-            foreach (Defect defect in defects)
-            {
-                foreach (Task task in defect.Tasks)
-                {
-                    switch (action)
-                    {
-                        case ProjectTotal.Estimate:
-                            decReturn = decReturn + task.Estimate;
-                            break;
-                        case ProjectTotal.ToDo:
-                            decReturn = decReturn + task.ToDo;
-                            break;
-                        case ProjectTotal.Actual:
-                            decReturn = decReturn + task.Actual;
-                            break;
-                        default:
-                            break;
-                    }
-                }
-            }
-
-            return decReturn;
-
-        }
-
-        /// <summary>
-        /// Accepts list of all User Stories / Defects and calculates totals
+        /// Accepts list of all User Stories / Defects and calculates quarter totals
         /// </summary>
         /// <param name="stories">List of stories to calculate</param>
-        /// <param name="action">Indicates whether to total for Estimate, ToDo, or Actuals</param>
+        /// <param name="Action">Indicates whether to total for Estimate, ToDo, or Actuals</param>
         /// <param name="RptQuarter">Which quarter to generate totals for</param>
         /// <param name="RptYear">Which Year to generate totals for</param>
-        private static decimal CreateQuarterTotal(List<UserStory> stories, ProjectTotal action, int RptQuarter, int RptYear)
+        private static decimal CreateQuarterTotal(List<UserStory> stories, ProjectTotal Action, int RptQuarter, int RptYear)
         {
 
             decimal decReturn = 0;
@@ -1946,7 +2053,7 @@ namespace AutoReport
                 {
                     foreach (Task task in story.Tasks)
                     {
-                        switch (action)
+                        switch (Action)
                         {
                             case ProjectTotal.Estimate:
                                 decReturn = decReturn + task.Estimate;
@@ -1969,13 +2076,13 @@ namespace AutoReport
         }
 
         /// <summary>
-        /// Accepts list of all User Stories / Defects and calculates totals
+        /// Accepts list of all User Stories / Defects and calculates quarter totals
         /// </summary>
         /// <param name="defects">List of Defects to calculate</param>
-        /// <param name="action">Indicates whether to total for Estimate, ToDo, or Actuals</param>
+        /// <param name="Action">Indicates whether to total for Estimate, ToDo, or Actuals</param>
         /// <param name="RptQuarter">Which quarter to generate totals for</param>
         /// <param name="RptYear">Which Year to generate totals for</param>
-        private static decimal CreateQuarterTotal(List<Defect> defects, ProjectTotal action, int RptQuarter, int RptYear)
+        private static decimal CreateQuarterTotal(List<Defect> defects, ProjectTotal Action, int RptQuarter, int RptYear)
         {
 
             decimal decReturn = 0;
@@ -2002,7 +2109,7 @@ namespace AutoReport
                 {
                     foreach (Task task in defect.Tasks)
                     {
-                        switch (action)
+                        switch (Action)
                         {
                             case ProjectTotal.Estimate:
                                 decReturn = decReturn + task.Estimate;
@@ -2072,6 +2179,14 @@ namespace AutoReport
             // Now get any commandline args
             string[] CmdArgs = Environment.GetCommandLineArgs();
 
+            // Check for proper switches
+            if (!ValidArgs(CmdArgs))
+            {
+                // If ValidArgs returns false, then the supplied arguments are invalid
+                // therefore, we message the user on proper usage and then UsageMessage terminates the application
+                UsageMessage();
+            }
+
             // Loop through all commandline args
             for (int LoopCtl = 0; LoopCtl < CmdArgs.Length; LoopCtl++)
             {
@@ -2085,6 +2200,7 @@ namespace AutoReport
                 {
                     case "/H":
                         // Message the user what the usage is
+                        UsageMessage();
                         break;
                     case "-Q":
                         // Format should be -Q<number><Year>
@@ -2113,8 +2229,8 @@ namespace AutoReport
                             ReportDayNum = DateTime.Today.Day;
                             ReportMonth = DateTime.Today.Month;
                             ReportYear = DateTime.Today.Year;
-                            ReportWeekNum = CultureInfo.CurrentCulture.Calendar.GetWeekOfYear(new DateTime(ReportYear, ReportMonth, ReportDayNum),
-                                CalendarWeekRule.FirstDay, DayOfWeek.Sunday);
+                            ReportingDay = new DateTime(ReportYear, ReportMonth, ReportDayNum);
+                            ReportWeekNum = CultureInfo.CurrentCulture.Calendar.GetWeekOfYear(ReportingDay, CalendarWeekRule.FirstDay, DayOfWeek.Sunday);
                         }
                         break;
                     case "-D":
@@ -2133,10 +2249,10 @@ namespace AutoReport
                         }
                         // Format should be -DddMonYYYY
                         OperatingMode = OperateMode.Daily;
-                        ReportDayNum = DateTime.Today.Day;
-                        ReportMonth = DateTime.Today.Month;
-                        ReportYear = DateTime.Today.Year;
-                        ReportingDay = new DateTime(ReportYear, ReportMonth, ReportDayNum);
+                        ReportingDay = DateTime.Today.AddDays(-1);
+                        ReportDayNum = ReportingDay.Day;
+                        ReportMonth = ReportingDay.Month;
+                        ReportYear = ReportingDay.Year;
                         break;
                 }
             }
@@ -2147,6 +2263,8 @@ namespace AutoReport
         /// Loops through the supplied list of Initiatives to ignore to see if the supplied Initiative IDNumber
         /// is in the list.  If it is, returns "True" indicating that we should ignore.
         /// </summary>
+        /// <param name="IgnoreList">Array of InitiativeIDs to ignore</param>
+        /// <param name="IDToCheck">InitiativeID to check the list against</param>
         private static bool CheckIgnoreList(string[] IgnoreList, string IDToCheck)
         {
 
@@ -2166,22 +2284,30 @@ namespace AutoReport
 
         }
 
-        private static string GetPlainTextFromHtml(string htmlString)
+        /// <summary>
+        /// Accepts a string with HTML tags and removes the tags for non-HTML display
+        /// </summary>
+        /// <param name="HTMLString">String containing HTML tags</param>
+        private static string GetPlainTextFromHtml(string HTMLString)
         {
 
             string htmlTagPattern = "<.*?>";
             var regexCss = new Regex("(\\<script(.+?)\\</script\\>)|(\\<style(.+?)\\</style\\>)", RegexOptions.Singleline | RegexOptions.IgnoreCase);
-            htmlString = regexCss.Replace(htmlString, string.Empty);
-            htmlString = Regex.Replace(htmlString, htmlTagPattern, string.Empty);
-            htmlString = Regex.Replace(htmlString, @"^\s+$[\r\n]*", "", RegexOptions.Multiline);
-            htmlString = htmlString.Replace("&nbsp;", string.Empty);
-            htmlString = htmlString.Replace("&lt;", "<");
-            htmlString = htmlString.Replace("&gt;", ">");
+            HTMLString = regexCss.Replace(HTMLString, string.Empty);
+            HTMLString = Regex.Replace(HTMLString, htmlTagPattern, string.Empty);
+            HTMLString = Regex.Replace(HTMLString, @"^\s+$[\r\n]*", "", RegexOptions.Multiline);
+            HTMLString = HTMLString.Replace("&nbsp;", string.Empty);
+            HTMLString = HTMLString.Replace("&lt;", "<");
+            HTMLString = HTMLString.Replace("&gt;", ">");
 
-            return htmlString;
+            return HTMLString;
 
         }
 
+        /// <summary>
+        /// Accepts the full status field from Rally, which includes all status updates, and extracts the latest
+        /// </summary>
+        /// <param name="FullStatus">Complete status history from Rally</param>
         private static string GetLatestStatus(string FullStatus)
         {
 
@@ -2200,6 +2326,10 @@ namespace AutoReport
 
         }
 
+        /// <summary>
+        /// Calculates the numeric value for the month based on the "Short Month"
+        /// </summary>
+        /// <param name="ShortMonth">"Short Month" input (i.e. 'Jan', 'Feb', etc)</param>
         private static int MonthNumber(string ShortMonth)
         {
 
@@ -2235,48 +2365,43 @@ namespace AutoReport
 
         }
 
+        /// <summary>
+        /// This is used to dump out usage instructions to the user on the commandline
+        /// </summary>
         public static void UsageMessage()
         {
 
-
+            Environment.Exit(0);
 
         }
 
         /// <summary>
-        /// Accepts list of all User Stories / Defects and calculates totals
+        /// Accepts list of all User Stories / Defects and calculates weekly totals
         /// </summary>
         /// <param name="defects">List of Defects to calculate</param>
-        /// <param name="action">Indicates whether to total for Estimate, ToDo, or Actuals</param>
+        /// <param name="Action">Indicates whether to total for Estimate, ToDo, or Actuals</param>
+        /// <param name="DayforWeekly">Date to use for calculating Sunday/Saturday end dates</param>
         /// <param name="RptQuarter">Which quarter to generate totals for</param>
         /// <param name="RptYear">Which Year to generate totals for</param>
-        private static decimal CreateWeeklyTotal(List<Defect> defects, ProjectTotal action, DateTime dayforweekly)
+        private static decimal CreateWeeklyTotal(List<Defect> defects, ProjectTotal Action, DateTime DayforWeekly)
         {
 
             decimal decReturn = 0;
-            string ReportPeriod = "";
-            string StoryRptPeriod = "";
+            DateTime startDate;
+            DateTime endDate;
 
-            // Set the string to indicate the Reporting Period
-            //ReportPeriod = "Q" + RptQuarter + RptYear;
+            // Set the end dates for the Reporting Period.  Should start on Sunday and end on Saturday
+            startDate = GetFirstDayOfWeek(DayforWeekly, CultureInfo.CurrentCulture);
+            endDate = startDate.AddDays(6);
 
             // Loop through the stories
             foreach (Defect defect in defects)
             {
-                // Set the string to indicate the story period
-                // Releases are quarterly and of the format--> 2016'Q1 CTO C&I Labs
-                if (defect.Release != "")
+                foreach (Task task in defect.Tasks)
                 {
-                    StoryRptPeriod = "Q" + defect.Release.Substring(6, 1) + defect.Release.Substring(0, 4);
-                }
-                else
-                {
-                    StoryRptPeriod = "";
-                }
-                if (ReportPeriod == StoryRptPeriod)
-                {
-                    foreach (Task task in defect.Tasks)
+                    if ((task.LastUpdate >= startDate) && (task.LastUpdate <= endDate))
                     {
-                        switch (action)
+                        switch (Action)
                         {
                             case ProjectTotal.Estimate:
                                 decReturn = decReturn + task.Estimate;
@@ -2292,6 +2417,7 @@ namespace AutoReport
                         }
                     }
                 }
+
             }
 
             return decReturn;
@@ -2299,40 +2425,30 @@ namespace AutoReport
         }
 
         /// <summary>
-        /// Accepts list of all User Stories / Defects and calculates totals
+        /// Accepts list of all User Stories / Defects and calculates weekly totals
         /// </summary>
         /// <param name="defects">List of Defects to calculate</param>
-        /// <param name="action">Indicates whether to total for Estimate, ToDo, or Actuals</param>
-        /// <param name="RptQuarter">Which quarter to generate totals for</param>
-        /// <param name="RptYear">Which Year to generate totals for</param>
-        private static decimal CreateWeeklyTotal(List<UserStory> stories, ProjectTotal action, DateTime dayforweekly)
+        /// <param name="Action">Indicates whether to total for Estimate, ToDo, or Actuals</param>
+        /// <param name="YearForAnnual">Which Year to generate totals for</param>
+        private static decimal CreateAnnualTotal(List<Defect> defects, ProjectTotal Action, int YearForAnnual)
         {
 
             decimal decReturn = 0;
-            string ReportPeriod = "";
-            string StoryRptPeriod = "";
+            DateTime startDate;
+            DateTime endDate;
 
-            // Set the string to indicate the Reporting Period
-            //ReportPeriod = "Q" + RptQuarter + RptYear;
+            // Set the end dates for the Reporting Period.  Should start on Sunday and end on Saturday
+            startDate = new DateTime(YearForAnnual, 1, 1);
+            endDate = new DateTime(YearForAnnual, 12, 31);
 
             // Loop through the stories
-            foreach (UserStory story in stories)
+            foreach (Defect defect in defects)
             {
-                // Set the string to indicate the story period
-                // Releases are quarterly and of the format--> 2016'Q1 CTO C&I Labs
-                if (story.Release != "")
+                foreach (Task task in defect.Tasks)
                 {
-                    StoryRptPeriod = "Q" + story.Release.Substring(6, 1) + story.Release.Substring(0, 4);
-                }
-                else
-                {
-                    StoryRptPeriod = "";
-                }
-                if (ReportPeriod == StoryRptPeriod)
-                {
-                    foreach (Task task in story.Tasks)
+                    if ((task.LastUpdate >= startDate) && (task.LastUpdate <= endDate))
                     {
-                        switch (action)
+                        switch (Action)
                         {
                             case ProjectTotal.Estimate:
                                 decReturn = decReturn + task.Estimate;
@@ -2348,10 +2464,143 @@ namespace AutoReport
                         }
                     }
                 }
+
             }
 
             return decReturn;
 
+        }
+
+        /// <summary>
+        /// Accepts list of all User Stories / Defects and calculates weekly totals
+        /// </summary>
+        /// <param name="story">List of Defects to calculate</param>
+        /// <param name="Action">Indicates whether to total for Estimate, ToDo, or Actuals</param>
+        /// <param name="YearForAnnual">Which Year to generate totals for</param>
+        private static decimal CreateAnnualTotal(List<UserStory> stories, ProjectTotal Action, int YearForAnnual)
+        {
+
+            decimal decReturn = 0;
+            DateTime startDate;
+            DateTime endDate;
+
+            // Set the end dates for the Reporting Period.  Should start on Sunday and end on Saturday
+            startDate = new DateTime(YearForAnnual, 1, 1);
+            endDate = new DateTime(YearForAnnual, 12, 31);
+
+            // Loop through the stories
+            foreach (UserStory story in stories)
+            {
+                foreach (Task task in story.Tasks)
+                {
+                    if ((task.LastUpdate >= startDate) && (task.LastUpdate <= endDate))
+                    {
+                        switch (Action)
+                        {
+                            case ProjectTotal.Estimate:
+                                decReturn = decReturn + task.Estimate;
+                                break;
+                            case ProjectTotal.ToDo:
+                                decReturn = decReturn + task.ToDo;
+                                break;
+                            case ProjectTotal.Actual:
+                                decReturn = decReturn + task.Actual;
+                                break;
+                            default:
+                                break;
+                        }
+                    }
+                }
+
+            }
+
+            return decReturn;
+
+        }
+
+        /// <summary>
+        /// Accepts list of all User Stories / Defects and calculates weekly totals
+        /// </summary>
+        /// <param name="stories">List of Stories to calculate</param>
+        /// <param name="Action">Indicates whether to total for Estimate, ToDo, or Actuals</param>
+        /// <param name="DayforWeekly">Date to use for calculating Sunday/Saturday end dates</param>
+        private static decimal CreateWeeklyTotal(List<UserStory> stories, ProjectTotal Action, DateTime DayforWeekly)
+        {
+
+            decimal decReturn = 0;
+            DateTime startDate;
+            DateTime endDate;
+
+            // Set the end dates for the Reporting Period.  Should start on Sunday and end on Saturday
+            startDate = GetFirstDayOfWeek(DayforWeekly, CultureInfo.CurrentCulture);
+            endDate = startDate.AddDays(6);
+
+            // Loop through the stories
+            foreach (UserStory story in stories)
+            {
+                foreach (Task task in story.Tasks)
+                {
+                    if ((task.LastUpdate >= startDate) && (task.LastUpdate <= endDate))
+                    {
+                        switch (Action)
+                        {
+                            case ProjectTotal.Estimate:
+                                decReturn = decReturn + task.Estimate;
+                                break;
+                            case ProjectTotal.ToDo:
+                                decReturn = decReturn + task.ToDo;
+                                break;
+                            case ProjectTotal.Actual:
+                                decReturn = decReturn + task.Actual;
+                                break;
+                            default:
+                                break;
+                        }
+                    }
+                }
+
+            }
+
+            return decReturn;
+
+        }
+
+        /// <summary>
+        /// Returns the first day of the week that the specified date
+        /// is in.
+        /// </summary>
+        /// <param name="DayInWeek">Date to calculate the start of week for</param>
+        /// <param name="cultureInfo">CultureInfo object to use for determining start of week day</param>
+        public static DateTime GetFirstDayOfWeek(DateTime DayInWeek, CultureInfo cultureInfo)
+        {
+
+            DayOfWeek firstDay = cultureInfo.DateTimeFormat.FirstDayOfWeek;
+            DateTime firstDayInWeek = DayInWeek.Date;
+            while (firstDayInWeek.DayOfWeek != firstDay)
+                firstDayInWeek = firstDayInWeek.AddDays(-1);
+
+            return firstDayInWeek;
+
+        }
+
+        /// <summary>
+        /// Checks the supplied Commandline Arguments for valid switches
+        /// </summary>
+        /// <param name="CommandArgs">String Array of arguments</param>
+        public static bool ValidArgs(string[] CommandArgs)
+        {
+
+            HashSet<string> possibleArgs = new HashSet<string> { "-D", "-W", "-A", "-Q" };
+            HashSet<string> passedArgs = new HashSet<string>();
+
+            foreach (string str in CommandArgs)
+            {
+                passedArgs.Add(str);
+            }
+
+            bool isSubset = !passedArgs.IsSubsetOf(possibleArgs);
+
+            return true;
         }
 
     }
