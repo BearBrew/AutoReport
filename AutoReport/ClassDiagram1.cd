@@ -3,8 +3,6 @@
   <Class Name="AutoReport.Program">
     <Position X="1" Y="0.5" Width="2.5" />
     <Compartments>
-      <Compartment Name="Fields" Collapsed="true" />
-      <Compartment Name="Methods" Collapsed="true" />
       <Compartment Name="Nested Types" Collapsed="false" />
     </Compartments>
     <NestedTypes>
@@ -59,7 +57,7 @@
       </Enum>
     </NestedTypes>
     <TypeIdentifier>
-      <HashCode>QQkpgACHAAUQACwCKEKAECRoRgDAkSAQAAQCJAooAEQ=</HashCode>
+      <HashCode>QQkpgACHAgUQACwCKEKAECRoRADAkSAQAEQCJAooAEQ=</HashCode>
       <FileName>Program.cs</FileName>
     </TypeIdentifier>
   </Class>
