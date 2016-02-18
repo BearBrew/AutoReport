@@ -219,6 +219,10 @@ namespace AutoReport
             /// </summary>
             public bool Expedite;
             /// <summary>
+            /// List of Epic Structures for Project
+            /// </summary>
+            public List<Epic> Epics;
+            /// <summary>
             /// List of Story Structures for Project
             /// </summary>
             public List<UserStory> UserStories;
@@ -298,6 +302,30 @@ namespace AutoReport
             /// Parent Project this Epic is part of
             /// </summary>
             public string ParentProject;
+            /// <summary>
+            /// Total for all 'Estimates' of Stories
+            /// </summary>
+            public decimal StoryEstimate;
+            /// <summary>
+            /// Total for all 'ToDo' of Stories
+            /// </summary>
+            public decimal StoryToDo;
+            /// <summary>
+            /// Total for all 'Actuals' of Stories
+            /// </summary>
+            public decimal StoryActual;
+            /// <summary>
+            /// Total for all 'Estimates' of Defects
+            /// </summary>
+            public decimal DefectEstimate;
+            /// <summary>
+            /// Total for all 'ToDo' of Defects
+            /// </summary>
+            public decimal DefectToDo;
+            /// <summary>
+            /// Total for all 'Actuals' of Defects
+            /// </summary>
+            public decimal DefectActual;
         }
 
         public struct UserStory
@@ -354,6 +382,18 @@ namespace AutoReport
             /// Name of the Epic this Story is part of
             /// </summary>
             public string ParentEpic;
+            /// <summary>
+            /// Total for all 'Estimates' of Stories
+            /// </summary>
+            public decimal StoryEstimate;
+            /// <summary>
+            /// Total for all 'ToDo' of Stories
+            /// </summary>
+            public decimal StoryToDo;
+            /// <summary>
+            /// Total for all 'Actuals' of Stories
+            /// </summary>
+            public decimal StoryActual;
         }
 
         public struct Task
@@ -434,6 +474,18 @@ namespace AutoReport
             /// List of Task Structures for the Defect
             /// </summary>
             public List<Task> Tasks;
+            /// <summary>
+            /// Total for all 'Estimates' of Defects
+            /// </summary>
+            public decimal DefectEstimate;
+            /// <summary>
+            /// Total for all 'ToDo' of Defects
+            /// </summary>
+            public decimal DefectToDo;
+            /// <summary>
+            /// Total for all 'Actuals' of Defects
+            /// </summary>
+            public decimal DefectActual;
         }
 
         public enum ProjectTotal { Estimate = 1, ToDo, Actual };
@@ -613,8 +665,6 @@ namespace AutoReport
                     LogOutput("Done with 'GetUserStoriesPerParent' for " + epic.FormattedID.Trim(), "Main", true);
                     BasicStoryList.AddRange(StoryList);
                 }
-                // We don't need the Epics anymore so clean up
-                EpicList.Clear();
                 LogOutput("Retrieved " + BasicStoryList.Count + " User Stories for " + proj.Name, "Main", false);
 
                 // Get any defects there may be for the User Stories
@@ -657,6 +707,7 @@ namespace AutoReport
                 newproject.StatusUpdate = proj.StatusUpdate;
                 newproject.UserStories = BasicStoryList;
                 newproject.Defects = BasicDefectList;
+                newproject.Epics = EpicList;
                 LogOutput("Appending new project object to object 'CompleteProjectList'", "Main", true);
                 CompleteProjectList.Add(newproject);
             }
@@ -678,7 +729,7 @@ namespace AutoReport
 
                     // Now create the final report
                     LogOutput("Calling 'CreateDailyReport'...", "Main", true);
-                    CreateDailyReport(AllProjectInfo);
+                    CreateDailyReport(AllProjectInfo, ReportingDay);
                     LogOutput("Done with 'CreateDailyReport'...", "Main", true);
                     break;
                 case OperateMode.Monthly:
@@ -725,7 +776,7 @@ namespace AutoReport
 
                     // Now create the weekly report
                     LogOutput("Calling 'CreateWeeklyReport'...", "Main", true);
-                    CreateWeeklyReport(AllProjectInfo);
+                    CreateWeeklyReport(AllProjectInfo, ReportingDay);
                     LogOutput("Done with 'CreateWeeklyReport'...", "Main", true);
                     break;
             }
@@ -1424,7 +1475,8 @@ namespace AutoReport
         /// Creates the final Daily output report using the supplied project list
         /// </summary>
         /// <param name="projects">Project list, with calculations, to use for report</param>
-        private static void CreateDailyReport(List<Project> projects)
+        /// <param name="RptDate">Date to run report for</param>
+        private static void CreateDailyReport(List<Project> projects, DateTime RptDate)
         {
 
             string strOutLine = "";
@@ -1452,73 +1504,51 @@ namespace AutoReport
             ReportFile = ConfigReportPath + "\\" + System.DateTime.Now.ToString("ddMMMyyyy") + "-" + System.DateTime.Now.ToString("HHmm") + "_DailyReport.txt";
             System.IO.StreamWriter reportfile = new System.IO.StreamWriter(ReportFile);
 
+            // Write the header line
+            reportfile.WriteLine("*********************************");
+            reportfile.WriteLine("Daily Totals report for " + RptDate.ToString("ddMMMyyyy"));
+            reportfile.WriteLine("*********************************\n");
+            reportfile.WriteLine("Initiative\tProject Name\t\t\tStory\t\t\t\tStory Hours Actual\tStory Hours To Do\tStory State\tReport Date\tCreate Date");
             foreach (Project proj in projects)
             {
-                strOutLine = "Daily Totals for: " + proj.Name + "\r\n";
-                strOutLine = strOutLine + "   Total Estimate for Stories --> " + proj.StoryEstimate + "\r\n";
-                strOutLine = strOutLine + "   Total ToDo for Stories --> " + proj.StoryToDo + "\r\n";
-                strOutLine = strOutLine + "   Total Actual for Stories --> " + proj.StoryActual + "\r\n";
-                strOutLine = strOutLine + "   Total Estimate for Defects --> " + proj.DefectEstimate + "\r\n";
-                strOutLine = strOutLine + "   Total ToDo for Defects --> " + proj.DefectToDo + "\r\n";
-                strOutLine = strOutLine + "   Total Actual for Defects --> " + proj.DefectActual + "\r\n";
-                strOutLine = strOutLine + " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" + "\r\n";
-                reportfile.WriteLine(strOutLine);
-
-                if (bDBConnected)
+                foreach (UserStory story in proj.UserStories)
                 {
-                    SqlCommand sqlCmd = new SqlCommand("INSERT INTO dbo.DailyStats VALUES(@Initiative, @ProjectName, @OppAmount, @Owner, @PlannedStartDate, " +
-                            "@PlannedEndDate, @Expedite, @State, @CancelledReason, @HoursDefectsEstimate, @HoursDefectsToDo, @HoursDefectsActual, " +
-                            "@HoursStoryEstimate, @HoursStoryToDo, @HoursStoryActual, @ReportDate, @UpdateOwner)", sqlDatabase);
-                    sqlCmd.Parameters.Add(new SqlParameter("Initiative", proj.Initiative));
-                    sqlCmd.Parameters.Add(new SqlParameter("ProjectName", proj.Name));
-                    sqlCmd.Parameters.Add(new SqlParameter("OppAmount", proj.OpportunityAmount));
-                    sqlCmd.Parameters.Add(new SqlParameter("Owner", proj.Owner));
-                    // Check to make sure that PlannedStartDate is within date limits for SQL Server
-                    if (proj.PlannedStartDate < Convert.ToDateTime("1/1/2010") || proj.PlannedStartDate > Convert.ToDateTime("1/1/2099"))
+                    strOutLine = string.Empty;
+                    strOutLine = proj.Initiative + "\t" + proj.Name + "\t";
+                    strOutLine = strOutLine + story.Name + "\t\t\t\t";
+                    strOutLine = strOutLine + story.StoryActual + "\t";
+                    strOutLine = strOutLine + story.StoryToDo + "\t";
+                    strOutLine = strOutLine + story.State + "\t";
+                    strOutLine = strOutLine + RptDate.ToString("ddMMMyyyy") + "\t";
+                    strOutLine = strOutLine + DateTime.Now.ToString("ddMMMyyyy") + "\n";
+                    reportfile.WriteLine(strOutLine);
+
+                    if (bDBConnected)
                     {
-                        sqlCmd.Parameters.Add(new SqlParameter("PlannedStartDate", System.Data.SqlTypes.SqlDateTime.MinValue));
+                        SqlCommand sqlCmd = new SqlCommand("INSERT INTO dbo.DailyStats VALUES(@Initiative, @ProjectName, @Story, @HoursStoryActual, " +
+                                "@HoursStoryToDo, @State, @ReportDate, @CreateDate)", sqlDatabase);
+                        sqlCmd.Parameters.Add(new SqlParameter("Initiative", proj.Initiative));
+                        sqlCmd.Parameters.Add(new SqlParameter("ProjectName", proj.Name));
+                        sqlCmd.Parameters.Add(new SqlParameter("Story", story.Name));
+                        sqlCmd.Parameters.Add(new SqlParameter("HoursStoryActual", story.StoryToDo));
+                        sqlCmd.Parameters.Add(new SqlParameter("HoursStoryToDo", story.StoryActual));
+                        sqlCmd.Parameters.Add(new SqlParameter("State", story.State));
+                        sqlCmd.Parameters.Add(new SqlParameter("ReportDate", RptDate.ToString("ddMMMyyyy")));
+                        sqlCmd.Parameters.Add(new SqlParameter("CreateDate", System.DateTime.Now));
+                        try
+                        {
+                            sqlCmd.ExecuteNonQuery();
+                        }
+                        catch (Exception ex)
+                        {
+                            LogOutput("Error on insert to SQL Server:" + ex.Message, "CreateDailyReport", false);
+                        }
+                        sqlCmd.Dispose();
                     }
-                    else
-                    {
-                        sqlCmd.Parameters.Add(new SqlParameter("PlannedStartDate", proj.PlannedStartDate));
-                    }
-                    // Check to make sure that PlannedEndDate is within date limits for SQL Server
-                    if (proj.PlannedEndDate < Convert.ToDateTime("1/1/2010") || proj.PlannedEndDate > Convert.ToDateTime("1/1/2099"))
-                    {
-                        sqlCmd.Parameters.Add(new SqlParameter("PlannedEndDate", System.Data.SqlTypes.SqlDateTime.MinValue));
-                    }
-                    else
-                    {
-                        sqlCmd.Parameters.Add(new SqlParameter("PlannedEndDate", proj.PlannedStartDate));
-                    }
-                    if (proj.Expedite)
-                    {
-                        sqlCmd.Parameters.Add(new SqlParameter("Expedite", "Y"));
-                    }
-                    else
-                    {
-                        sqlCmd.Parameters.Add(new SqlParameter("Expedite", "N"));
-                    }
-                    sqlCmd.Parameters.Add(new SqlParameter("State", proj.State));
-                    sqlCmd.Parameters.Add(new SqlParameter("CancelledReason", proj.RevokedReason));
-                    sqlCmd.Parameters.Add(new SqlParameter("HoursDefectsEstimate", proj.DefectEstimate));
-                    sqlCmd.Parameters.Add(new SqlParameter("HoursDefectsToDo", proj.DefectToDo));
-                    sqlCmd.Parameters.Add(new SqlParameter("HoursDefectsActual", proj.DefectActual));
-                    sqlCmd.Parameters.Add(new SqlParameter("HoursStoryEstimate", proj.StoryEstimate));
-                    sqlCmd.Parameters.Add(new SqlParameter("HoursStoryToDo", proj.StoryToDo));
-                    sqlCmd.Parameters.Add(new SqlParameter("HoursStoryActual", proj.StoryActual));
-                    sqlCmd.Parameters.Add(new SqlParameter("ReportDate", System.DateTime.Now));
-                    sqlCmd.Parameters.Add(new SqlParameter("UpdateOwner", proj.UpdateOwner));
-                    try
-                    {
-                        sqlCmd.ExecuteNonQuery();
-                    }
-                    catch (Exception ex)
-                    {
-                        LogOutput("Error on insert to SQL Server:" + ex.Message, "CreateDailyReport", false);
-                    }
-                    sqlCmd.Dispose();
                 }
+                strOutLine = string.Empty;
+                strOutLine = "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
+                reportfile.WriteLine(strOutLine);
             }
 
             // Close the file
@@ -1536,6 +1566,7 @@ namespace AutoReport
         /// Creates the final Daily output report using the supplied project list
         /// </summary>
         /// <param name="projects">Project list, with calculations, to use for report</param>
+        /// <param name="RptYear">Year to run report for</param>
         private static void CreateAnnualReport(List<Project> projects, int RptYear)
         {
 
@@ -1564,15 +1595,20 @@ namespace AutoReport
             ReportFile = ConfigReportPath + "\\" + System.DateTime.Now.ToString("ddMMMyyyy") + "-" + System.DateTime.Now.ToString("HHmm") + "_AnnualReport.txt";
             System.IO.StreamWriter reportfile = new System.IO.StreamWriter(ReportFile);
 
+            // Write the header line
+            reportfile.WriteLine("*********************************");
+            reportfile.WriteLine(RptYear.ToString() + " year to date totals as of " + System.DateTime.Now.ToString("ddMMMyyyy"));
+            reportfile.WriteLine("*********************************\r\n");
+            reportfile.WriteLine("Project Name\t\tHours");
             foreach (Project proj in projects)
             {
-                strOutLine = "Annual Totals for: " + proj.Name + "\r\n";
-                strOutLine = strOutLine + "   Total Estimate for Stories --> " + proj.StoryEstimate + "\r\n";
-                strOutLine = strOutLine + "   Total ToDo for Stories --> " + proj.StoryToDo + "\r\n";
-                strOutLine = strOutLine + "   Total Actual for Stories --> " + proj.StoryActual + "\r\n";
-                strOutLine = strOutLine + "   Total Estimate for Defects --> " + proj.DefectEstimate + "\r\n";
-                strOutLine = strOutLine + "   Total ToDo for Defects --> " + proj.DefectToDo + "\r\n";
-                strOutLine = strOutLine + "   Total Actual for Defects --> " + proj.DefectActual + "\r\n";
+                strOutLine = proj.Name + "\r\n";
+                strOutLine = strOutLine + "   Story Estimate-> " + proj.StoryEstimate + "\t";
+                strOutLine = strOutLine + "Story ToDo-> " + proj.StoryToDo + "\t";
+                strOutLine = strOutLine + "Story Actual-> " + proj.StoryActual + "\t";
+                strOutLine = strOutLine + "Defect Estimate-> " + proj.DefectEstimate + "\t";
+                strOutLine = strOutLine + "Defect ToDo-> " + proj.DefectToDo + "\t";
+                strOutLine = strOutLine + "Defect Actual-> " + proj.DefectActual + "\r\n";
                 strOutLine = strOutLine + " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" + "\r\n";
                 reportfile.WriteLine(strOutLine);
 
@@ -1648,11 +1684,15 @@ namespace AutoReport
         /// Creates the weekly output report using the supplied project list
         /// </summary>
         /// <param name="projects">Project list, with calculations, to use for report</param>
-        private static void CreateWeeklyReport(List<Project> projects)
+        /// <param name="RptDate">Date to use for calculating Sunday/Saturday end dates</param>
+        private static void CreateWeeklyReport(List<Project> projects, DateTime RptDate)
         {
 
             string strOutLine = "";
             bool bDBConnected = false;
+
+            // Do our rollups to the Epic level
+
 
             // Create the SQL Server database connection
             SqlConnection sqlDatabase = new SqlConnection("Data Source=" + ConfigDBServer +
@@ -1675,74 +1715,100 @@ namespace AutoReport
             ReportFile = ConfigReportPath + "\\" + System.DateTime.Now.ToString("ddMMMyyyy") + "-" + System.DateTime.Now.ToString("HHmm") + "_WeeklyReport.txt";
             System.IO.StreamWriter reportfile = new System.IO.StreamWriter(ReportFile);
 
+            // Write the header line
+            reportfile.WriteLine("*********************************");
+            reportfile.WriteLine("Weekly report for " + RptDate.ToString("ddMMMyyyy"));
+            reportfile.WriteLine("*********************************\r\n");
+            strOutLine = "Intiative\tProject Name\t\t\tOpp Amount\tOwner\tPlanned Start Date\tPlanned End Date\tActual End Date\t";
+            strOutLine = strOutLine + "Expedite\tState\tCancel Reason\tEpic\t\t\tDefect Hours Est\tDefect Hours To Do\tDefect Hours Actual\t";
+            strOutLine = strOutLine + "Story Hours Est\tStory Hours To Do\tStory Hours Actual\tUpdate Owner\tStatus Update\tReport Date";
+            reportfile.WriteLine(strOutLine);
             foreach (Project proj in projects)
             {
-                strOutLine = "Weekly Totals for: " + proj.Name + "\r\n";
-                strOutLine = strOutLine + "   Total Estimate for Stories --> " + proj.StoryEstimate + "\r\n";
-                strOutLine = strOutLine + "   Total ToDo for Stories --> " + proj.StoryToDo + "\r\n";
-                strOutLine = strOutLine + "   Total Actual for Stories --> " + proj.StoryActual + "\r\n";
-                strOutLine = strOutLine + "   Total Estimate for Defects --> " + proj.DefectEstimate + "\r\n";
-                strOutLine = strOutLine + "   Total ToDo for Defects --> " + proj.DefectToDo + "\r\n";
-                strOutLine = strOutLine + "   Total Actual for Defects --> " + proj.DefectActual + "\r\n";
-                strOutLine = strOutLine + " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" + "\r\n";
-                reportfile.WriteLine(strOutLine);
-
-                if (bDBConnected)
+                foreach (Epic epic in proj.Epics)
                 {
-                    SqlCommand sqlCmd = new SqlCommand("INSERT INTO dbo.WeeklyStats VALUES(@Initiative, @ProjectName, @OppAmount, @Owner, @PlannedStartDate, " +
-                            "@PlannedEndDate, @Expedite, @State, @CancelledReason, @HoursDefectsEstimate, @HoursDefectsToDo, @HoursDefectsActual, " +
-                            "@HoursStoryEstimate, @HoursStoryToDo, @HoursStoryActual, @ReportDate, @UpdateOwner, @ProjectUpdate)", sqlDatabase);
-                    sqlCmd.Parameters.Add(new SqlParameter("Initiative", proj.Initiative));
-                    sqlCmd.Parameters.Add(new SqlParameter("ProjectName", proj.Name));
-                    sqlCmd.Parameters.Add(new SqlParameter("OppAmount", proj.OpportunityAmount));
-                    sqlCmd.Parameters.Add(new SqlParameter("Owner", proj.Owner));
-                    // Check to make sure that PlannedStartDate is within date limits for SQL Server
-                    if (proj.PlannedStartDate < Convert.ToDateTime("1/1/2010") || proj.PlannedStartDate > Convert.ToDateTime("1/1/2099"))
-                    {
-                        sqlCmd.Parameters.Add(new SqlParameter("PlannedStartDate", System.Data.SqlTypes.SqlDateTime.MinValue));
-                    }
-                    else
-                    {
-                        sqlCmd.Parameters.Add(new SqlParameter("PlannedStartDate", proj.PlannedStartDate));
-                    }
-                    // Check to make sure that PlannedEndDate is within date limits for SQL Server
-                    if (proj.PlannedEndDate < Convert.ToDateTime("1/1/2010") || proj.PlannedEndDate > Convert.ToDateTime("1/1/2099"))
-                    {
-                        sqlCmd.Parameters.Add(new SqlParameter("PlannedEndDate", System.Data.SqlTypes.SqlDateTime.MinValue));
-                    }
-                    else
-                    {
-                        sqlCmd.Parameters.Add(new SqlParameter("PlannedEndDate", proj.PlannedStartDate));
-                    }
+                    strOutLine = proj.Initiative + "\t" + proj.Name + "\t" + proj.OpportunityAmount.ToString("$ 0,000,000") + "\t" + proj.Owner + "\t";
+                    strOutLine = strOutLine + proj.PlannedStartDate.ToString("ddMMMyyyy") + "\t" + proj.PlannedEndDate.ToString("ddMMMyyyy") + "\t";
+                    strOutLine = strOutLine + proj.ActualEndDate.ToString("ddMMMyyyy") + "\t";
                     if (proj.Expedite)
                     {
-                        sqlCmd.Parameters.Add(new SqlParameter("Expedite", "Y"));
+                        strOutLine = strOutLine + "Yes\t";
                     }
                     else
                     {
-                        sqlCmd.Parameters.Add(new SqlParameter("Expedite", "N"));
+                        strOutLine = strOutLine + "No\t";
                     }
-                    sqlCmd.Parameters.Add(new SqlParameter("State", proj.State));
-                    sqlCmd.Parameters.Add(new SqlParameter("CancelledReason", proj.RevokedReason));
-                    sqlCmd.Parameters.Add(new SqlParameter("HoursDefectsEstimate", proj.DefectEstimate));
-                    sqlCmd.Parameters.Add(new SqlParameter("HoursDefectsToDo", proj.DefectToDo));
-                    sqlCmd.Parameters.Add(new SqlParameter("HoursDefectsActual", proj.DefectActual));
-                    sqlCmd.Parameters.Add(new SqlParameter("HoursStoryEstimate", proj.StoryEstimate));
-                    sqlCmd.Parameters.Add(new SqlParameter("HoursStoryToDo", proj.StoryToDo));
-                    sqlCmd.Parameters.Add(new SqlParameter("HoursStoryActual", proj.StoryActual));
-                    sqlCmd.Parameters.Add(new SqlParameter("ReportDate", System.DateTime.Now));
-                    sqlCmd.Parameters.Add(new SqlParameter("UpdateOwner", proj.UpdateOwner));
-                    sqlCmd.Parameters.Add(new SqlParameter("ProjectUpdate", proj.StatusUpdate));
-                    try
+                    strOutLine = strOutLine + proj.State + "\t" + proj.RevokedReason + "\t" + epic.Name + "\t" + epic.DefectEstimate.ToString("0.0") + "\t";
+                    strOutLine = strOutLine + epic.DefectToDo.ToString("0.0") + "\t" + epic.DefectActual.ToString("0.0") + "\t" + epic.StoryEstimate.ToString("0.0") + "\t";
+                    strOutLine = strOutLine + epic.StoryToDo.ToString("0.0") + "\t" + epic.StoryActual.ToString("0.0") + "\t" + proj.UpdateOwner + "\t";
+                    strOutLine = strOutLine + proj.StatusUpdate + "\t" + DateTime.Now.ToString("ddMMMyyyy") + "\r\n";
+                    //"   " + epic.Name + "   Story Estimate-> " + epic.StoryEstimate + "\r\n";
+                    //strOutLine = strOutLine + "   " + epic.Name + "   Story ToDo-> " + epic.StoryToDo + "\r\n";
+                    //s/trOutLine = strOutLine + "   " + epic.Name + "   Story Actual-> " + epic.StoryActual + "\r\n";
+                    //strOutLine = strOutLine + "   " + epic.Name + "   Defect Estimate-> " + epic.DefectEstimate + "\r\n";
+                    //s/trOutLine = strOutLine + "   " + epic.Name + "   Defect ToDo-> " + epic.DefectToDo + "\r\n";
+                    //strOutLine = strOutLine + "   " + epic.Name + "   Defect Actual-> " + epic.DefectActual + "\r\n";
+                    //strOutLine = strOutLine + " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" + "\r\n";
+                    reportfile.WriteLine(strOutLine);
+
+                    if (bDBConnected)
                     {
-                        sqlCmd.ExecuteNonQuery();
+                        SqlCommand sqlCmd = new SqlCommand("INSERT INTO dbo.WeeklyStats VALUES(@Initiative, @ProjectName, @OppAmount, @Owner, @PlannedStartDate, " +
+                                "@PlannedEndDate, @Expedite, @State, @CancelledReason, @HoursDefectsEstimate, @HoursDefectsToDo, @HoursDefectsActual, " +
+                                "@HoursStoryEstimate, @HoursStoryToDo, @HoursStoryActual, @ReportDate, @UpdateOwner, @ProjectUpdate)", sqlDatabase);
+                        sqlCmd.Parameters.Add(new SqlParameter("Initiative", proj.Initiative));
+                        sqlCmd.Parameters.Add(new SqlParameter("ProjectName", proj.Name));
+                        sqlCmd.Parameters.Add(new SqlParameter("OppAmount", proj.OpportunityAmount));
+                        sqlCmd.Parameters.Add(new SqlParameter("Owner", proj.Owner));
+                        // Check to make sure that PlannedStartDate is within date limits for SQL Server
+                        if (proj.PlannedStartDate < Convert.ToDateTime("1/1/2010") || proj.PlannedStartDate > Convert.ToDateTime("1/1/2099"))
+                        {
+                            sqlCmd.Parameters.Add(new SqlParameter("PlannedStartDate", System.Data.SqlTypes.SqlDateTime.MinValue));
+                        }
+                        else
+                        {
+                            sqlCmd.Parameters.Add(new SqlParameter("PlannedStartDate", proj.PlannedStartDate));
+                        }
+                        // Check to make sure that PlannedEndDate is within date limits for SQL Server
+                        if (proj.PlannedEndDate < Convert.ToDateTime("1/1/2010") || proj.PlannedEndDate > Convert.ToDateTime("1/1/2099"))
+                        {
+                            sqlCmd.Parameters.Add(new SqlParameter("PlannedEndDate", System.Data.SqlTypes.SqlDateTime.MinValue));
+                        }
+                        else
+                        {
+                            sqlCmd.Parameters.Add(new SqlParameter("PlannedEndDate", proj.PlannedStartDate));
+                        }
+                        if (proj.Expedite)
+                        {
+                            sqlCmd.Parameters.Add(new SqlParameter("Expedite", "Y"));
+                        }
+                        else
+                        {
+                            sqlCmd.Parameters.Add(new SqlParameter("Expedite", "N"));
+                        }
+                        sqlCmd.Parameters.Add(new SqlParameter("State", proj.State));
+                        sqlCmd.Parameters.Add(new SqlParameter("CancelledReason", proj.RevokedReason));
+                        sqlCmd.Parameters.Add(new SqlParameter("HoursDefectsEstimate", proj.DefectEstimate));
+                        sqlCmd.Parameters.Add(new SqlParameter("HoursDefectsToDo", proj.DefectToDo));
+                        sqlCmd.Parameters.Add(new SqlParameter("HoursDefectsActual", proj.DefectActual));
+                        sqlCmd.Parameters.Add(new SqlParameter("HoursStoryEstimate", proj.StoryEstimate));
+                        sqlCmd.Parameters.Add(new SqlParameter("HoursStoryToDo", proj.StoryToDo));
+                        sqlCmd.Parameters.Add(new SqlParameter("HoursStoryActual", proj.StoryActual));
+                        sqlCmd.Parameters.Add(new SqlParameter("ReportDate", System.DateTime.Now));
+                        sqlCmd.Parameters.Add(new SqlParameter("UpdateOwner", proj.UpdateOwner));
+                        sqlCmd.Parameters.Add(new SqlParameter("ProjectUpdate", proj.StatusUpdate));
+                        try
+                        {
+                            sqlCmd.ExecuteNonQuery();
+                        }
+                        catch (Exception ex)
+                        {
+                            LogOutput("Error on insert to SQL Server:" + ex.Message, "CreateWeeklyReport", false);
+                        }
+                        sqlCmd.Dispose();
                     }
-                    catch (Exception ex)
-                    {
-                        LogOutput("Error on insert to SQL Server:" + ex.Message, "CreateWeeklyReport", false);
-                    }
-                    sqlCmd.Dispose();
                 }
+                strOutLine = strOutLine + " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" + "\r\n";
             }
 
             // Close the file
@@ -1760,6 +1826,7 @@ namespace AutoReport
         /// Creates the weekly output report using the supplied project list
         /// </summary>
         /// <param name="projects">Project list, with calculations, to use for report</param>
+        /// <param name="RptMonth">Month to run report for</param>
         private static void CreateMonthlyReport(List<Project> projects, int RptMonth)
         {
 
@@ -1779,23 +1846,28 @@ namespace AutoReport
             }
             catch (SqlException ex)
             {
-                LogOutput("Error connecting to SQL Server:" + ex.Message, "CreateWeeklyReport", false);
+                LogOutput("Error connecting to SQL Server:" + ex.Message, "CreateMonthlyReport", false);
                 bDBConnected = false;
             }
 
             // Write the string to a file.
-            ReportFile = ConfigReportPath + "\\" + System.DateTime.Now.ToString("ddMMMyyyy") + "-" + System.DateTime.Now.ToString("HHmm") + "_WeeklyReport.txt";
+            ReportFile = ConfigReportPath + "\\" + System.DateTime.Now.ToString("ddMMMyyyy") + "-" + System.DateTime.Now.ToString("HHmm") + "_MonthlyReport.txt";
             System.IO.StreamWriter reportfile = new System.IO.StreamWriter(ReportFile);
 
+            // Write the header line
+            reportfile.WriteLine("*********************************");
+            reportfile.WriteLine("Monthly report for " + RptMonth.ToString("00"));
+            reportfile.WriteLine("*********************************\r\n");
+            reportfile.WriteLine("Project Name\t\tHours");
             foreach (Project proj in projects)
             {
-                strOutLine = "Weekly Totals for: " + proj.Name + "\r\n";
-                strOutLine = strOutLine + "   Total Estimate for Stories --> " + proj.StoryEstimate + "\r\n";
-                strOutLine = strOutLine + "   Total ToDo for Stories --> " + proj.StoryToDo + "\r\n";
-                strOutLine = strOutLine + "   Total Actual for Stories --> " + proj.StoryActual + "\r\n";
-                strOutLine = strOutLine + "   Total Estimate for Defects --> " + proj.DefectEstimate + "\r\n";
-                strOutLine = strOutLine + "   Total ToDo for Defects --> " + proj.DefectToDo + "\r\n";
-                strOutLine = strOutLine + "   Total Actual for Defects --> " + proj.DefectActual + "\r\n";
+                strOutLine = proj.Name + "\r\n";
+                strOutLine = strOutLine + "   Story Estimate-> " + proj.StoryEstimate + "\t";
+                strOutLine = strOutLine + "Story ToDo-> " + proj.StoryToDo + "\t";
+                strOutLine = strOutLine + "Story Actual-> " + proj.StoryActual + "\t";
+                strOutLine = strOutLine + "Defect Estimate-> " + proj.DefectEstimate + "\t";
+                strOutLine = strOutLine + "Defect ToDo-> " + proj.DefectToDo + "\t";
+                strOutLine = strOutLine + "Defect Actual-> " + proj.DefectActual + "\r\n";
                 strOutLine = strOutLine + " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" + "\r\n";
                 reportfile.WriteLine(strOutLine);
 
@@ -1851,7 +1923,7 @@ namespace AutoReport
                     }
                     catch (Exception ex)
                     {
-                        LogOutput("Error on insert to SQL Server:" + ex.Message, "CreateWeeklyReport", false);
+                        LogOutput("Error on insert to SQL Server:" + ex.Message, "CreateMonthlyReport", false);
                     }
                     sqlCmd.Dispose();
                 }
@@ -1901,15 +1973,20 @@ namespace AutoReport
             ReportFile = ConfigReportPath + "\\" + System.DateTime.Now.ToString("ddMMMyyyy") + "-" + System.DateTime.Now.ToString("HHmm") + "_QuarterReport.txt";
             System.IO.StreamWriter reportfile = new System.IO.StreamWriter(ReportFile);
 
+            // Write the header line
+            reportfile.WriteLine("*********************************");
+            reportfile.WriteLine("Quarterly report for " + ReportPeriod);
+            reportfile.WriteLine("*********************************\r\n");
+            reportfile.WriteLine("Project Name\t\tHours");
             foreach (Project proj in projects)
             {
-                strOutLine = ReportPeriod + "Quarter Totals for: " + proj.Name + "\r\n";
-                strOutLine = strOutLine + "   Total Estimate for Stories --> " + proj.StoryEstimate + "\r\n";
-                strOutLine = strOutLine + "   Total ToDo for Stories --> " + proj.StoryToDo + "\r\n";
-                strOutLine = strOutLine + "   Total Actual for Stories --> " + proj.StoryActual + "\r\n";
-                strOutLine = strOutLine + "   Total Estimate for Defects --> " + proj.DefectEstimate + "\r\n";
-                strOutLine = strOutLine + "   Total ToDo for Defects --> " + proj.DefectToDo + "\r\n";
-                strOutLine = strOutLine + "   Total Actual for Defects --> " + proj.DefectActual + "\r\n";
+                strOutLine = proj.Name + "\r\n";
+                strOutLine = strOutLine + "   Story Estimate-> " + proj.StoryEstimate + "\t";
+                strOutLine = strOutLine + "Story ToDo-> " + proj.StoryToDo + "\t";
+                strOutLine = strOutLine + "Story Actual-> " + proj.StoryActual + "\t";
+                strOutLine = strOutLine + "Defect Estimate-> " + proj.DefectEstimate + "\t";
+                strOutLine = strOutLine + "Defect ToDo-> " + proj.DefectToDo + "\t";
+                strOutLine = strOutLine + "Defect Actual-> " + proj.DefectActual + "\r\n";
                 strOutLine = strOutLine + " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" + "\r\n";
                 reportfile.WriteLine(strOutLine);
 
@@ -2010,8 +2087,8 @@ namespace AutoReport
                 newproject.RevokedReason = proj.RevokedReason;
                 newproject.State = proj.State;
                 newproject.StatusUpdate = proj.StatusUpdate;
-                newproject.UserStories = proj.UserStories;
-                newproject.Defects = proj.Defects;
+                newproject.UserStories = CreateDailyRollup(proj.UserStories, RptDay);
+                newproject.Defects = CreateDailyRollup(proj.Defects, RptDay);
                 newproject.StoryEstimate = CreateDailyTotal(newproject.UserStories, ProjectTotal.Estimate, RptDay);
                 newproject.StoryToDo = CreateDailyTotal(newproject.UserStories, ProjectTotal.ToDo, RptDay);
                 newproject.StoryActual = CreateDailyTotal(newproject.UserStories, ProjectTotal.Actual, RptDay);
@@ -2064,6 +2141,7 @@ namespace AutoReport
                 // Grab just the latest update
                 newproject.StatusUpdate = GetLatestStatus(proj.StatusUpdate);
                 newproject.UserStories = proj.UserStories;
+                newproject.Epics = CreateWeeklyEpicSummary(proj.Epics, newproject.UserStories, newproject.Defects, RptDate);
                 newproject.Defects = proj.Defects;
                 newproject.StoryEstimate = CreateWeeklyTotal(newproject.UserStories, ProjectTotal.Estimate, RptDate);
                 newproject.StoryToDo = CreateWeeklyTotal(newproject.UserStories, ProjectTotal.ToDo, RptDate);
@@ -2911,7 +2989,12 @@ namespace AutoReport
             return true;
         }
 
-        public static bool IsReportMonth(DateTime UpdateDate, int RptMonth)
+        /// <summary>
+        /// Checks if the supplied date occured during the supplied reporting month.  This is used to determine if the last update for a project occured in the month we are currently reporting.
+        /// </summary>
+        /// <param name="UpdateDate">LastUpdateDate for the project</param>
+        /// <param name="RptMonth">Month we are reporting for</param>
+        private static bool IsReportMonth(DateTime UpdateDate, int RptMonth)
         {
 
             DateTime startOfMonth = new DateTime(DateTime.Today.Year, RptMonth, 1);
@@ -2928,5 +3011,224 @@ namespace AutoReport
 
         }
 
+        /// <summary>
+        /// Accepts list of all Epics / User Stories / Defects and creates summary total roll-ups at the Epic level
+        /// </summary>
+        /// <param name="epics">List of all Epics</param>
+        /// <param name="stories">List of all Stories</param>
+        /// <param name="defects">List of all Defects</param>
+        /// <param name="DateToCalc">Date to use for calculating Sunday/Saturday end dates</param>
+        public static List<Epic> CreateWeeklyEpicSummary(List<Epic> epics, List<UserStory> stories, List<Defect> defects, DateTime DateToCalc)
+        {
+
+            List<Epic> ReturnEpics = new List<Epic>();
+
+            foreach (Epic epic in epics)
+            {
+                Epic newepic = new Epic();
+                newepic.StoryEstimate = 0;
+                newepic.StoryToDo = 0;
+                newepic.StoryActual = 0;
+                newepic.DefectEstimate = 0;
+                newepic.DefectToDo = 0;
+                newepic.DefectActual = 0;
+                newepic.ActualEndDate = epic.ActualEndDate;
+                newepic.Description = epic.Description;
+                newepic.FormattedID = epic.FormattedID;
+                newepic.Name = epic.Name;
+                newepic.Owner = epic.Owner;
+                newepic.ParentProject = epic.ParentProject;
+                newepic.PlannedEndDate = epic.PlannedEndDate;
+                newepic.PlannedStartDate = epic.PlannedStartDate;
+                newepic.Release = epic.Release;
+                newepic.State = epic.State;
+                foreach (UserStory story in stories)
+                {
+                    // Check if the current epic is parent to the current story
+                    if (epic.Name == story.ParentEpic)
+                    {
+                        // Save the info
+                        foreach (Task task in story.Tasks)
+                        {
+                            newepic.StoryEstimate = newepic.StoryEstimate + task.Estimate;
+                            newepic.StoryToDo = newepic.StoryToDo + task.ToDo;
+                            newepic.StoryActual = newepic.StoryActual + task.Actual;
+                            if (defects != null)
+                            {
+                                foreach (Defect defect in defects)
+                                {
+                                    if (defect.ParentStory == story.FormattedID)
+                                    {
+                                        foreach (Task storytask in defect.Tasks)
+                                        {
+                                            newepic.DefectEstimate = newepic.DefectEstimate + storytask.Estimate;
+                                            newepic.DefectToDo = newepic.DefectToDo + storytask.ToDo;
+                                            newepic.DefectActual = newepic.DefectActual + storytask.Actual;
+                                        }
+                                    }
+                                }
+                            }
+                            newepic.DefectEstimate = newepic.DefectEstimate + 0;
+                            newepic.DefectToDo = newepic.DefectToDo + 0;
+                            newepic.DefectActual = newepic.DefectActual + 0;
+                        }
+                    }
+                }
+                ReturnEpics.Add(newepic);
+            }
+
+            return ReturnEpics;
+
+        }
+
+        /// <summary>
+        /// Calculates the "Short Month" name from the supplied numeric month
+        /// </summary>
+        /// <param name="MonthNumber">Number for the month to return the name for (i.e. 'Jan', 'Feb', etc)</param>
+        private string MonthName(int MonthNumber)
+        {
+
+            switch (MonthNumber)
+            {
+                case 1:
+                    return "Jan";
+                case 2:
+                    return "Feb";
+                case 3:
+                    return "Mar";
+                case 4:
+                    return "Apr";
+                case 5:
+                    return "May";
+                case 6:
+                    return "Jun";
+                case 7:
+                    return "Jul";
+                case 8:
+                    return "Aug";
+                case 9:
+                    return "Sep";
+                case 10:
+                    return "Oct";
+                case 11:
+                    return "Nov";
+                case 12:
+                    return "Dec";
+                default:
+                    return "N/A";
+            }
+
+        }
+
+        /// <summary>
+        /// Generates a view of User Stories for a project rolled up to the story level
+        /// </summary>
+        /// <param name="stories">Original list of User Stories for project</param>
+        /// <param name="DateToCalc">Date to create rollup for</param>
+        public static List<UserStory> CreateDailyRollup(List<UserStory> stories, DateTime DateToCalc)
+        {
+
+            List<UserStory> rollup = new List<UserStory>();
+
+            foreach (UserStory story in stories)
+            {
+                UserStory newstory = new UserStory();
+                newstory.Blocked = story.Blocked;
+                newstory.Children = story.Children;
+                newstory.Description = story.Description;
+                newstory.FormattedID = story.FormattedID;
+                newstory.Iteration = story.Iteration;
+                newstory.Name = story.Name;
+                newstory.Owner = story.Owner;
+                newstory.ParentEpic = story.ParentEpic;
+                newstory.ParentProject = story.ParentProject;
+                newstory.Release = story.Release;
+                newstory.State = story.State;
+                newstory.Tasks = story.Tasks;
+                newstory.StoryActual = TaskTotal(story.Tasks, ProjectTotal.Actual, DateToCalc);
+                newstory.StoryEstimate = TaskTotal(story.Tasks, ProjectTotal.Estimate, DateToCalc);
+                newstory.StoryToDo = TaskTotal(story.Tasks, ProjectTotal.ToDo, DateToCalc);
+                newstory.PlanEstimate = story.PlanEstimate;
+                if (newstory.StoryActual != 0)
+                {
+                    rollup.Add(newstory);
+                }
+            }
+
+            return rollup;
+
+        }
+
+        /// <summary>
+        /// Generates a view of User Stories for a project rolled up to the story level
+        /// </summary>q
+        /// <param name="defects">Original list of Defects for project</param>
+        /// <param name="DateToCalc">Date to create rollup for</param>
+        public static List<Defect> CreateDailyRollup(List<Defect> defects, DateTime DateToCalc)
+        {
+
+            List<Defect> rollup = new List<Defect>();
+
+            foreach (Defect defect in defects)
+            {
+                Defect newdefect = new Defect();
+                newdefect.Description = defect.Description;
+                newdefect.FormattedID = defect.FormattedID;
+                newdefect.Iteration = defect.Iteration;
+                newdefect.Name = defect.Name;
+                newdefect.Owner = defect.Owner;
+                newdefect.ParentStory = defect.ParentStory;
+                newdefect.Release = defect.Release;
+                newdefect.State = defect.State;
+                newdefect.Tasks = defect.Tasks;
+                newdefect.DefectActual = TaskTotal(defect.Tasks, ProjectTotal.Actual, DateToCalc);
+                newdefect.DefectEstimate = TaskTotal(defect.Tasks, ProjectTotal.Estimate, DateToCalc);
+                newdefect.DefectToDo = TaskTotal(defect.Tasks, ProjectTotal.ToDo, DateToCalc);
+                if (newdefect.DefectActual != 0)
+                {
+                    rollup.Add(newdefect);
+                }
+            }
+
+            return rollup;
+
+        }
+
+        /// <summary>
+        /// Accepts User Story and calculates daily totals
+        /// </summary>
+        /// <param name="tasks">Story to calculate</param>
+        /// <param name="Action">Indicates whether to total for Estimate, ToDo, or Actuals</param>
+        /// <param name="DayforDaily">Date to calculate totals for</param>
+        private static decimal TaskTotal(List<Task> tasks, ProjectTotal Action, DateTime DayforDaily)
+        {
+
+            decimal decReturn = 0;
+
+            foreach (Task task in tasks)
+            {
+                if (DayforDaily.ToShortDateString() == task.LastUpdate.ToShortDateString())
+                {
+                    switch (Action)
+                    {
+                        case ProjectTotal.Estimate:
+                            decReturn = decReturn + task.Estimate;
+                            break;
+                        case ProjectTotal.ToDo:
+                            decReturn = decReturn + task.ToDo;
+                            break;
+                        case ProjectTotal.Actual:
+                            decReturn = decReturn + task.Actual;
+                            break;
+                        default:
+                            break;
+                    }
+
+                }
+            }
+
+            return decReturn;
+
+        }
     }
 }
