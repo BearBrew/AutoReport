@@ -137,19 +137,23 @@ namespace AutoReport
             /// <summary>
             /// Planned start date
             /// </summary>
-            public System.DateTime PlannedStartDate;
+            public DateTime PlannedStartDate;
             /// <summary>
             /// Planned End Date
             /// </summary>
-            public System.DateTime PlannedEndDate;
+            public DateTime PlannedEndDate;
             /// <summary>
             /// Actual End Date
             /// </summary>
-            public System.DateTime ActualEndDate;
+            public DateTime ActualEndDate;
             /// <summary>
             /// Current State of the Initiative
             /// </summary>
             public string State;
+            /// <summary>
+            /// Timestamp for the last state change
+            /// </summary>
+            public DateTime StateChangedDate;
         }
 
         public struct Project
@@ -173,19 +177,19 @@ namespace AutoReport
             /// <summary>
             /// Planned Start date of the Project
             /// </summary>
-            public System.DateTime PlannedStartDate;
+            public DateTime PlannedStartDate;
             /// <summary>
             /// Planned End date of the Project
             /// </summary>
-            public System.DateTime PlannedEndDate;
+            public DateTime PlannedEndDate;
             /// <summary>
             /// Actual End date of the Project
             /// </summary>
-            public System.DateTime ActualEndDate;
+            public DateTime ActualEndDate;
             /// <summary>
             /// Last Date/Time the project was updated
             /// </summary>
-            public System.DateTime LastUpdateDate;
+            public DateTime LastUpdateDate;
             /// <summary>
             /// Running status updates of the Project
             /// </summary>
@@ -258,6 +262,10 @@ namespace AutoReport
             /// Which 'Project' or 'Team' is this for?
             /// </summary>
             public string ScrumTeam;
+            /// <summary>
+            /// Timestamp for the last state change
+            /// </summary>
+            public DateTime StateChangedDate;
         }
 
         public struct Epic
@@ -277,15 +285,19 @@ namespace AutoReport
             /// <summary>
             /// Planned Start date of the Epic
             /// </summary>
-            public System.DateTime PlannedStartDate;
+            public DateTime PlannedStartDate;
             /// <summary>
             /// Planned End date of the Epic
             /// </summary>
-            public System.DateTime PlannedEndDate;
+            public DateTime PlannedEndDate;
             /// <summary>
             /// Actual End date of the Epic
             /// </summary>
-            public System.DateTime ActualEndDate;
+            public DateTime ActualEndDate;
+            /// <summary>
+            /// All User Stories that are rolled up under this Epic
+            /// </summary>
+            public List<UserStory> UserStories;
             /// <summary>
             /// State of the Epic
             /// </summary>
@@ -326,6 +338,10 @@ namespace AutoReport
             /// Total for all 'Actuals' of Defects
             /// </summary>
             public decimal DefectActual;
+            /// <summary>
+            /// Timestamp for the last state change
+            /// </summary>
+            public DateTime StateChangedDate;
         }
 
         public struct UserStory
@@ -434,6 +450,14 @@ namespace AutoReport
             /// Last Update Date/Time for the Task
             /// </summary>
             public DateTime LastUpdate;
+            /// <summary>
+            /// Flag indicating the task is blocked
+            /// </summary>
+            public bool Blocked;
+            /// <summary>
+            /// Reason the task is blocked
+            /// </summary>
+            public string BlockedReason;
         }
 
         public struct Defect
@@ -486,6 +510,14 @@ namespace AutoReport
             /// Total for all 'Actuals' of Defects
             /// </summary>
             public decimal DefectActual;
+            /// <summary>
+            /// Indicates that the defect is blocked for some reason
+            /// </summary>
+            public bool Blocked;
+            /// <summary>
+            /// Reason for the block
+            /// </summary>
+            public string BlockedReason;
         }
 
         public enum ProjectTotal { Estimate = 1, ToDo, Actual };
@@ -655,14 +687,37 @@ namespace AutoReport
                 // Now go through each of the Epics for the current project
                 // and recurse through to get all final-level user stories
                 LogOutput("Getting all User Stories for " + proj.Name + "...", "Main", true);
+                List<Epic> FullEpicList = new List<Epic>();
                 BasicStoryList = new List<UserStory>();
                 LogOutput("Looping for each Epic...", "Main", true);
                 foreach (Epic epic in EpicList)
                 {
+                    Epic newepic = new Epic();
                     List<UserStory> StoryList = new List<UserStory>();
                     LogOutput("Calling 'GetUserStoriesPerParent' with " + epic.FormattedID.Trim() + " as Root Parent...", "Main", true);
                     StoryList = GetUserStoriesPerParent(epic.FormattedID.Trim(), epic.Name.Trim(), true);
                     LogOutput("Done with 'GetUserStoriesPerParent' for " + epic.FormattedID.Trim(), "Main", true);
+                    // save the info as a new epic
+                    newepic.ActualEndDate = epic.ActualEndDate;
+                    newepic.DefectActual = epic.DefectActual;
+                    newepic.DefectEstimate = epic.DefectEstimate;
+                    newepic.DefectToDo = epic.DefectToDo;
+                    newepic.Description = epic.Description;
+                    newepic.FormattedID = epic.FormattedID;
+                    newepic.Name = epic.Name;
+                    newepic.Owner = epic.Owner;
+                    newepic.ParentProject = epic.ParentProject;
+                    newepic.PlannedEndDate = epic.PlannedEndDate;
+                    newepic.PlannedStartDate = epic.PlannedStartDate;
+                    newepic.Release = epic.Release;
+                    newepic.State = epic.State;
+                    newepic.StateChangedDate = epic.StateChangedDate;
+                    newepic.StoryActual = epic.StoryActual;
+                    newepic.StoryEstimate = epic.StoryEstimate;
+                    newepic.StoryToDo = epic.StoryToDo;
+                    newepic.UserStories = StoryList;
+                    // Add the stories to the full list
+                    FullEpicList.Add(newepic);
                     BasicStoryList.AddRange(StoryList);
                 }
                 LogOutput("Retrieved " + BasicStoryList.Count + " User Stories for " + proj.Name, "Main", false);
@@ -688,13 +743,15 @@ namespace AutoReport
 
                 // At this point we have the FULL list of User Stories/Defects for the current
                 // project.  We now create a "new" project with the same properties, but this time
-                // we are able to store the User Stories and Defects.
+                // we are able to store the Epics, User Stories, and Defects.
                 LogOutput("Creating new project object and populating with full information...", "Main", true);
                 Project newproject = new Project();
+                newproject.ActualEndDate = proj.ActualEndDate;
                 newproject.Description = proj.Description;
                 newproject.Expedite = proj.Expedite;
                 newproject.FormattedID = proj.FormattedID;
                 newproject.Initiative = proj.Initiative;
+                newproject.LastUpdateDate = proj.LastUpdateDate;
                 newproject.Name = proj.Name;
                 newproject.OpportunityAmount = proj.OpportunityAmount;
                 newproject.Owner = proj.Owner;
@@ -704,10 +761,11 @@ namespace AutoReport
                 newproject.PlannedStartDate = proj.PlannedStartDate;
                 newproject.RevokedReason = proj.RevokedReason;
                 newproject.State = proj.State;
+                newproject.StateChangedDate = proj.StateChangedDate;
                 newproject.StatusUpdate = proj.StatusUpdate;
                 newproject.UserStories = BasicStoryList;
                 newproject.Defects = BasicDefectList;
-                newproject.Epics = EpicList;
+                newproject.Epics = FullEpicList;
                 LogOutput("Appending new project object to object 'CompleteProjectList'", "Main", true);
                 CompleteProjectList.Add(newproject);
             }
@@ -815,7 +873,8 @@ namespace AutoReport
             // so this is currently https://rally1.rallydev.com/#/22986814983d/detail/project/22986814983
             rallyRequest.Project = "/project/22986814983";  // This must be a reference to the project.  This project equates to "CTO Customer & Innovation Labs"
             rallyRequest.ProjectScopeDown = true;   // Specify that we want any projects under the main one
-            rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Owner", "PlannedStartDate", "PlannedEndDate", "ActualEndDate", "Description", "State" };
+            rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Owner", "PlannedStartDate", "PlannedEndDate",
+                "ActualEndDate", "Description", "State", "StateChangedDate" };
             rallyRequest.Query = new Query("FormattedID", Query.Operator.DoesNotEqual, "I68");  // We really don't want a filter, but you need a query string of some sort
             LogOutput("Running Rally Query request...", "GetInitiativeList", true);
             QueryResult rallyResult = RallyAPI.Query(rallyRequest);
@@ -836,6 +895,7 @@ namespace AutoReport
                     initiative.ActualEndDate = Convert.ToDateTime(result["ActualEndDate"]);
                     initiative.Description = GetPlainTextFromHtml(RationalizeData(result["Description"]));
                     initiative.State = RationalizeData(result["State"]);
+                    initiative.StateChangedDate = Convert.ToDateTime(result["StateChangedDate"]);
                     LogOutput("Appending new initiative object to return list...", "GetInitiativeList", true);
                     listReturn.Add(initiative);
                 }
@@ -859,9 +919,9 @@ namespace AutoReport
             LogOutput("Using RallyAPI to request project information for all Initiatives...", "GetProjectsForInitiative", true);
             LogOutput("Building Rally Request...", "GetProjectsForInitiative", true);
             Request rallyRequest = new Request("PortfolioItem/Feature");
-            rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Owner", "PlannedStartDate",
+            rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Owner", "PlannedStartDate", "PlannedEndDate",
                 "ActualEndDate", "c_ProjectUpdate", "c_RevokedReason", "State", "ValueScore", "Description",
-                "Expedite", "c_UpdateOwner", "c_Stakeholder", "Project", "LastUpdateDate" };
+                "Expedite", "c_UpdateOwner", "c_Stakeholder", "Project", "LastUpdateDate", "StateChangedDate" };
             rallyRequest.Query = new Query("Parent.Name", Query.Operator.Equals, InitiativeID);
             LogOutput("Running Rally Query request...", "GetProjectsForInitiative", true);
             QueryResult rallyResult = RallyAPI.Query(rallyRequest);
@@ -887,6 +947,7 @@ namespace AutoReport
                 proj.UpdateOwner = RationalizeData(result["c_UpdateOwner"]);
                 proj.Initiative = InitiativeID;
                 proj.ScrumTeam = RationalizeData(result["Project"]);
+                proj.StateChangedDate = Convert.ToDateTime(result["StateChangedDate"]);
                 LogOutput("Appending new project object to return list...", "GetProjectsForInitiative", true);
                 listReturn.Add(proj);
             }
@@ -910,7 +971,7 @@ namespace AutoReport
             LogOutput("Building Rally Request...", "GetEpicsForProject", true);
             Request rallyRequest = new Request("PortfolioItem/Epic");
             rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Owner", "PlannedEndDate",
-                "PlannedStartDate","ActualEndDate", "State", "Description", "Release" };
+                "PlannedStartDate","ActualEndDate", "State", "Description", "Release", "StatusChangedDate" };
             rallyRequest.Query = new Query("Parent.FormattedID", Query.Operator.Equals, ProjectID);
             LogOutput("Running Rally Query request...", "GetEpicsForProject", true);
             QueryResult rallyResult = RallyAPI.Query(rallyRequest);
@@ -928,6 +989,7 @@ namespace AutoReport
                 epic.Description = RationalizeData(result["Description"]);
                 epic.ParentProject = ProjectName(ProjectID);
                 epic.Release = RationalizeData(result["Release"]);
+                epic.StateChangedDate = Convert.ToDateTime(result["StatusChangedDate"]);
                 LogOutput("Appending new epic object to return list...", "GetEpicsForProject", true);
                 listReturn.Add(epic);
             }
@@ -951,7 +1013,8 @@ namespace AutoReport
             LogOutput("Using RallyAPI to request defect information for all stories...", "GetDefectsForStory", true);
             LogOutput("Building Rally Request...", "GetDefectsForStory", true);
             Request rallyRequest = new Request("Defect");
-            rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Description", "Iteration", "Owner", "Release", "State" };
+            rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Description", "Iteration", "Owner",
+                "Release", "State", "Blocked", "BlockedReason" };
             rallyRequest.Query = new Query("Requirement.Name", Query.Operator.Equals, Parent.Name.Trim());
             LogOutput("Running Rally Query request...", "GetDefectsForStory", true);
             QueryResult rallyResult = RallyAPI.Query(rallyRequest);
@@ -968,6 +1031,8 @@ namespace AutoReport
                 defect.State = RationalizeData(result["State"]);
                 defect.ParentStory = Parent.FormattedID.Trim();
                 defect.Tasks = GetTasksForUserStory(defect.FormattedID);
+                defect.Blocked = RationalizeData(result["Blocked"]);
+                defect.BlockedReason = RationalizeData(result["BlockedReason"]);
                 LogOutput("Appending new defect object to return list...", "GetDefectsForStory", true);
                 listReturn.Add(defect);
             }
@@ -1057,7 +1122,8 @@ namespace AutoReport
             LogOutput("Using RallyAPI to request task information for all stories...", "GetTasksForUserStory", true);
             LogOutput("Building Rally Request...", "GetTasksForUserStory", true);
             Request rallyRequest = new Request("Tasks");
-            rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Estimate", "ToDo", "Actuals", "Owner", "State", "Description", "LastUpdateDate" };
+            rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Estimate", "ToDo", "Actuals", "Owner",
+                "State", "Description", "LastUpdateDate", "Blocked", "BlockedReason" };
             rallyRequest.Query = new Query("WorkProduct.FormattedID", Query.Operator.Equals, StoryID);
             LogOutput("Running Rally Query request...", "GetTasksForUserStory", true);
             QueryResult rallyResult = RallyAPI.Query(rallyRequest);
@@ -1074,6 +1140,8 @@ namespace AutoReport
                 task.State = RationalizeData(result["State"]);
                 task.Description = RationalizeData(result["Description"]);
                 task.LastUpdate = Convert.ToDateTime(RationalizeData(result["LastUpdateDate"]));
+                task.Blocked = RationalizeData(result["Blocked"]);
+                task.BlockedReason = RationalizeData(result["BlockedReason"]);
                 LogOutput("Appending new task object to return list...", "GetTasksForUserStory", true);
                 listReturn.Add(task);
             }
@@ -1508,14 +1576,14 @@ namespace AutoReport
             reportfile.WriteLine("*********************************");
             reportfile.WriteLine("Daily Totals report for " + RptDate.ToString("ddMMMyyyy"));
             reportfile.WriteLine("*********************************\n");
-            reportfile.WriteLine("Initiative\tProject Name\t\t\tStory\t\t\t\tStory Hours Actual\tStory Hours To Do\tStory State\tReport Date\tCreate Date");
+            reportfile.WriteLine("Initiative\tProject Name\tStory\tStory Hours Actual\tStory Hours To Do\tStory State\tReport Date\tCreate Date");
             foreach (Project proj in projects)
             {
                 foreach (UserStory story in proj.UserStories)
                 {
                     strOutLine = string.Empty;
                     strOutLine = proj.Initiative + "\t" + proj.Name + "\t";
-                    strOutLine = strOutLine + story.Name + "\t\t\t\t";
+                    strOutLine = strOutLine + story.Name + "\t";
                     strOutLine = strOutLine + story.StoryActual + "\t";
                     strOutLine = strOutLine + story.StoryToDo + "\t";
                     strOutLine = strOutLine + story.State + "\t";
@@ -1691,9 +1759,6 @@ namespace AutoReport
             string strOutLine = "";
             bool bDBConnected = false;
 
-            // Do our rollups to the Epic level
-
-
             // Create the SQL Server database connection
             SqlConnection sqlDatabase = new SqlConnection("Data Source=" + ConfigDBServer +
                                                             ";Initial Catalog=" + ConfigDBName +
@@ -1720,7 +1785,7 @@ namespace AutoReport
             reportfile.WriteLine("Weekly report for " + RptDate.ToString("ddMMMyyyy"));
             reportfile.WriteLine("*********************************\r\n");
             strOutLine = "Intiative\tProject Name\tOpp Amount\tOwner\tPlanned Start Date\tPlanned End Date\tActual End Date\t";
-            strOutLine = strOutLine + "Expedite\tState\tCancel Reason\tEpic\tEpic State\tDefect Hours Est\tDefect Hours To Do\tDefect Hours Actual\t";
+            strOutLine = strOutLine + "Expedite\tState\tCancel Reason\tEpicID\tEpic\tEpic State\tDefect Hours Est\tDefect Hours To Do\tDefect Hours Actual\t";
             strOutLine = strOutLine + "Story Hours Est\tStory Hours To Do\tStory Hours Actual\tUpdate Owner\tStatus Update\tReport Date";
             reportfile.WriteLine(strOutLine);
             foreach (Project proj in projects)
@@ -1738,7 +1803,7 @@ namespace AutoReport
                     {
                         strOutLine = strOutLine + "No\t";
                     }
-                    strOutLine = strOutLine + proj.State + "\t" + proj.RevokedReason + "\t" + epic.Name + "\t" + epic.State + "\t" + epic.DefectEstimate.ToString("0.0") + "\t";
+                    strOutLine = strOutLine + proj.State + "\t" + proj.RevokedReason + "\t" + epic.FormattedID + "\t" + epic.Name + "\t" + epic.State + "\t" + epic.DefectEstimate.ToString("0.0") + "\t";
                     strOutLine = strOutLine + epic.DefectToDo.ToString("0.0") + "\t" + epic.DefectActual.ToString("0.0") + "\t" + epic.StoryEstimate.ToString("0.0") + "\t";
                     strOutLine = strOutLine + epic.StoryToDo.ToString("0.0") + "\t" + epic.StoryActual.ToString("0.0") + "\t" + proj.UpdateOwner + "\t";
                     strOutLine = strOutLine + proj.StatusUpdate + "\t" + DateTime.Now.ToString("ddMMMyyyy") + "\n";
@@ -1747,8 +1812,8 @@ namespace AutoReport
                     if (bDBConnected)
                     {
                         SqlCommand sqlCmd = new SqlCommand("INSERT INTO dbo.WeeklyStats VALUES(@Initiative, @ProjectName, @OppAmount, @Owner, @PlannedStartDate, " +
-                                "@PlannedEndDate, @ActualEndDate, @Expedite, @State, @CancelledReason, @Epic, @EpicState, @EpicDefectsEst, @EpicDefectsToDo, @EpicDefectsActual, " +
-                                "@EpicStoryEst, @EpicStoryToDo, @EpicStoryActual, @UpdateOwner, @ProjectUpdate, @ReportDate, @CreateDate)", sqlDatabase);
+                                "@PlannedEndDate, @ActualEndDate, @Expedite, @State, @CancelledReason, @EpicID, @Epic, @EpicState, @EpicDefectsEst, @EpicDefectsToDo," +
+                                 "@EpicDefectsActual, @EpicStoryEst, @EpicStoryToDo, @EpicStoryActual, @UpdateOwner, @ProjectUpdate, @ReportDate, @CreateDate)", sqlDatabase);
                         sqlCmd.Parameters.Add(new SqlParameter("Initiative", proj.Initiative));
                         sqlCmd.Parameters.Add(new SqlParameter("ProjectName", proj.Name));
                         sqlCmd.Parameters.Add(new SqlParameter("OppAmount", proj.OpportunityAmount));
@@ -1790,6 +1855,7 @@ namespace AutoReport
                         }
                         sqlCmd.Parameters.Add(new SqlParameter("State", proj.State));
                         sqlCmd.Parameters.Add(new SqlParameter("CancelledReason", proj.RevokedReason));
+                        sqlCmd.Parameters.Add(new SqlParameter("EpicID", epic.FormattedID));
                         sqlCmd.Parameters.Add(new SqlParameter("Epic", epic.Name));
                         sqlCmd.Parameters.Add(new SqlParameter("EpicState", epic.State));
                         sqlCmd.Parameters.Add(new SqlParameter("EpicDefectsEst", epic.DefectEstimate));
@@ -2091,6 +2157,12 @@ namespace AutoReport
                 newproject.PlannedStartDate = proj.PlannedStartDate;
                 newproject.RevokedReason = proj.RevokedReason;
                 newproject.State = proj.State;
+                newproject.ActualEndDate = proj.ActualEndDate;
+                newproject.Epics = proj.Epics;
+                newproject.LastUpdateDate = proj.LastUpdateDate;
+                newproject.ScrumTeam = proj.ScrumTeam;
+                newproject.StakeHolder = proj.StakeHolder;
+                newproject.StateChangedDate = proj.StateChangedDate;
                 newproject.StatusUpdate = proj.StatusUpdate;
                 newproject.UserStories = CreateDailyRollup(proj.UserStories, RptDay);
                 newproject.Defects = CreateDailyRollup(proj.Defects, RptDay);
@@ -2124,23 +2196,25 @@ namespace AutoReport
         private static List<Project> CalculateWeeklyTotals(List<Project> SourceProjectList, DateTime RptDate)
         {
 
-            //DateTime startDate;
-            //DateTime endDate;
+            DateTime startDate;
+            DateTime endDate;
             List<Project> DestinationProjectList = new List<Project>();
 
             // Set the end dates for the Reporting Period.  Should start on Sunday and end on Saturday
-            //startDate = GetFirstDayOfWeek(RptDate, CultureInfo.CurrentCulture);
-            //endDate = startDate.AddDays(6);
+            startDate = GetFirstDayOfWeek(RptDate, CultureInfo.CurrentCulture);
+            endDate = startDate.AddDays(6);
 
             // Once again, we need to loop through all projects and build a new list 
             // with the summary information included
             foreach (Project proj in SourceProjectList)
             {
                 Project newproject = new Project();
+                newproject.ActualEndDate = proj.ActualEndDate;
                 newproject.Description = proj.Description;
                 newproject.Expedite = proj.Expedite;
                 newproject.FormattedID = proj.FormattedID;
                 newproject.Initiative = proj.Initiative;
+                newproject.LastUpdateDate = proj.LastUpdateDate;
                 newproject.Name = proj.Name;
                 newproject.OpportunityAmount = proj.OpportunityAmount;
                 newproject.Owner = proj.Owner;
@@ -2148,7 +2222,10 @@ namespace AutoReport
                 newproject.PlannedEndDate = proj.PlannedEndDate;
                 newproject.PlannedStartDate = proj.PlannedStartDate;
                 newproject.RevokedReason = proj.RevokedReason;
+                newproject.ScrumTeam = proj.ScrumTeam;
+                newproject.StakeHolder = proj.StakeHolder;
                 newproject.State = proj.State;
+                newproject.StateChangedDate = proj.StateChangedDate;
                 // Grab just the latest update
                 newproject.StatusUpdate = GetLatestStatus(proj.StatusUpdate);
                 newproject.UserStories = proj.UserStories;
@@ -2160,16 +2237,17 @@ namespace AutoReport
                 newproject.DefectEstimate = CreateWeeklyTotal(newproject.Defects, ProjectTotal.Estimate, RptDate);
                 newproject.DefectToDo = CreateWeeklyTotal(newproject.Defects, ProjectTotal.ToDo, RptDate);
                 newproject.DefectActual = CreateWeeklyTotal(newproject.Defects, ProjectTotal.Actual, RptDate);
-                DestinationProjectList.Add(newproject);
-                //if ((newproject.StoryEstimate != 0 ||
-                //    newproject.StoryToDo != 0 ||
-                //    newproject.StoryActual != 0 ||
-                //    newproject.DefectEstimate != 0 ||
-                //    newproject.DefectToDo != 0 ||
-                //    newproject.DefectActual != 0) && (newproject.State != "Done"))
-                //{
-                //    DestinationProjectList.Add(newproject);
-                //}
+                if (newproject.State != "Done")
+                {
+                    DestinationProjectList.Add(newproject);
+                }
+                else
+                {
+                    if (newproject.StateChangedDate >= startDate && newproject.StateChangedDate <= endDate)
+                    {
+                        DestinationProjectList.Add(newproject);
+                    }
+                }
             }
 
             return DestinationProjectList;
@@ -2192,10 +2270,12 @@ namespace AutoReport
             foreach (Project proj in SourceProjectList)
             {
                 Project newproject = new Project();
+                newproject.ActualEndDate = proj.ActualEndDate;
                 newproject.Description = proj.Description;
                 newproject.Expedite = proj.Expedite;
                 newproject.FormattedID = proj.FormattedID;
                 newproject.Initiative = proj.Initiative;
+                newproject.LastUpdateDate = proj.LastUpdateDate;
                 newproject.Name = proj.Name;
                 newproject.OpportunityAmount = proj.OpportunityAmount;
                 newproject.Owner = proj.Owner;
@@ -2203,10 +2283,14 @@ namespace AutoReport
                 newproject.PlannedEndDate = proj.PlannedEndDate;
                 newproject.PlannedStartDate = proj.PlannedStartDate;
                 newproject.RevokedReason = proj.RevokedReason;
+                newproject.ScrumTeam = proj.ScrumTeam;
+                newproject.StakeHolder = proj.StakeHolder;
                 newproject.State = proj.State;
+                newproject.StateChangedDate = proj.StateChangedDate;
                 newproject.StatusUpdate = proj.StatusUpdate;
                 newproject.UserStories = proj.UserStories;
                 newproject.Defects = proj.Defects;
+                newproject.Epics = proj.Epics;
                 newproject.StoryEstimate = CreateAnnualTotal(newproject.UserStories, ProjectTotal.Estimate, RptYear);
                 newproject.StoryToDo = CreateAnnualTotal(newproject.UserStories, ProjectTotal.ToDo, RptYear);
                 newproject.StoryActual = CreateAnnualTotal(newproject.UserStories, ProjectTotal.Actual, RptYear);
@@ -2214,15 +2298,6 @@ namespace AutoReport
                 newproject.DefectToDo = CreateAnnualTotal(newproject.Defects, ProjectTotal.ToDo, RptYear);
                 newproject.DefectActual = CreateAnnualTotal(newproject.Defects, ProjectTotal.Actual, RptYear);
                 DestinationProjectList.Add(newproject);
-                //if (newproject.StoryEstimate != 0 ||
-                //    newproject.StoryToDo != 0 ||
-                //    newproject.StoryActual != 0 ||
-                //    newproject.DefectEstimate != 0 ||
-                //    newproject.DefectToDo != 0 ||
-                //   newproject.DefectActual != 0)
-                //{
-                //    DestinationProjectList.Add(newproject);
-                //}
             }
 
             return DestinationProjectList;
@@ -2245,10 +2320,12 @@ namespace AutoReport
             foreach (Project proj in SourceProjectList)
             {
                 Project newproject = new Project();
+                newproject.ActualEndDate = proj.ActualEndDate;
                 newproject.Description = proj.Description;
                 newproject.Expedite = proj.Expedite;
                 newproject.FormattedID = proj.FormattedID;
                 newproject.Initiative = proj.Initiative;
+                newproject.LastUpdateDate = proj.LastUpdateDate;
                 newproject.Name = proj.Name;
                 newproject.OpportunityAmount = proj.OpportunityAmount;
                 newproject.Owner = proj.Owner;
@@ -2256,8 +2333,14 @@ namespace AutoReport
                 newproject.PlannedEndDate = proj.PlannedEndDate;
                 newproject.PlannedStartDate = proj.PlannedStartDate;
                 newproject.RevokedReason = proj.RevokedReason;
+                newproject.ScrumTeam = proj.ScrumTeam;
+                newproject.StakeHolder = proj.StakeHolder;
                 newproject.State = proj.State;
+                newproject.StateChangedDate = proj.StateChangedDate;
                 newproject.StatusUpdate = proj.StatusUpdate;
+                newproject.Defects = proj.Defects;
+                newproject.Epics = proj.Epics;
+                newproject.UserStories = proj.UserStories;
                 // We only want to include this project if the project is still open or was
                 // closed DURING the reporting month 
                 if (newproject.State == "Done")
@@ -2294,10 +2377,12 @@ namespace AutoReport
             foreach (Project proj in SourceProjectList)
             {
                 Project newproject = new Project();
+                newproject.ActualEndDate = proj.ActualEndDate;
                 newproject.Description = proj.Description;
                 newproject.Expedite = proj.Expedite;
                 newproject.FormattedID = proj.FormattedID;
                 newproject.Initiative = proj.Initiative;
+                newproject.LastUpdateDate = proj.LastUpdateDate;
                 newproject.Name = proj.Name;
                 newproject.OpportunityAmount = proj.OpportunityAmount;
                 newproject.Owner = proj.Owner;
@@ -2305,10 +2390,14 @@ namespace AutoReport
                 newproject.PlannedEndDate = proj.PlannedEndDate;
                 newproject.PlannedStartDate = proj.PlannedStartDate;
                 newproject.RevokedReason = proj.RevokedReason;
+                newproject.ScrumTeam = proj.ScrumTeam;
+                newproject.StakeHolder = proj.StakeHolder;
                 newproject.State = proj.State;
+                newproject.StateChangedDate = proj.StateChangedDate;
                 newproject.StatusUpdate = proj.StatusUpdate;
                 newproject.UserStories = proj.UserStories;
                 newproject.Defects = proj.Defects;
+                newproject.Epics = proj.Epics;
                 newproject.StoryEstimate = CreateQuarterTotal(newproject.UserStories, ProjectTotal.Estimate, RptQuarter, RptYear);
                 newproject.StoryToDo = CreateQuarterTotal(newproject.UserStories, ProjectTotal.ToDo, RptQuarter, RptYear);
                 newproject.StoryActual = CreateQuarterTotal(newproject.UserStories, ProjectTotal.Actual, RptQuarter, RptYear);
@@ -2614,29 +2703,39 @@ namespace AutoReport
                         OperatingMode = OperateMode.Weekly;
                         if (CommandLinePart.Length > 2)
                         {
-                            ReportDayNum = Convert.ToInt32(CommandLinePart.Substring(2, 2));
-                            ReportMonth = MonthNumber(CommandLinePart.Substring(4, 3));
-                            ReportYear = Convert.ToInt32(CommandLinePart.Substring(7, 4));
-                            ReportingDay = new DateTime(ReportYear, ReportMonth, ReportDayNum);
-                            ReportWeekNum = CultureInfo.CurrentCulture.Calendar.GetWeekOfYear(new DateTime(ReportYear, ReportMonth, ReportDayNum),
-                                CalendarWeekRule.FirstDay, DayOfWeek.Sunday);
+                            ReportingDay = WeeklyReportDay(new DateTime(Convert.ToInt32(CommandLinePart.Substring(7, 4)),
+                                MonthNumber(CommandLinePart.Substring(4, 3)), Convert.ToInt32(CommandLinePart.Substring(2, 2))));
+                            ReportDayNum = ReportingDay.Day;
+                            ReportMonth = ReportingDay.Month;
+                            ReportYear = ReportingDay.Year;
+                            ReportWeekNum = CultureInfo.CurrentCulture.Calendar.GetWeekOfYear(ReportingDay, CalendarWeekRule.FirstDay, DayOfWeek.Sunday);
                         }
                         else
                         {
-                            ReportDayNum = DateTime.Today.Day;
-                            ReportMonth = DateTime.Today.Month;
-                            ReportYear = DateTime.Today.Year;
-                            ReportingDay = new DateTime(ReportYear, ReportMonth, ReportDayNum);
+                            ReportingDay = PrevWeeklyReportDay();
+                            ReportDayNum = ReportingDay.Day;
+                            ReportMonth = ReportingDay.Month;
+                            ReportYear = ReportingDay.Year;
                             ReportWeekNum = CultureInfo.CurrentCulture.Calendar.GetWeekOfYear(ReportingDay, CalendarWeekRule.FirstDay, DayOfWeek.Sunday);
                         }
                         break;
                     case "-D":
-                        // Format should be -DddMonYYYY
+                        // Format should be -DddMonYYYY or -D
                         OperatingMode = OperateMode.Daily;
-                        ReportDayNum = Convert.ToInt32(CommandLinePart.Substring(2, 2));
-                        ReportMonth = MonthNumber(CommandLinePart.Substring(4, 3));
-                        ReportYear = Convert.ToInt32(CommandLinePart.Substring(7, 4));
-                        ReportingDay = new DateTime(ReportYear, ReportMonth, ReportDayNum);
+                        if (CommandLinePart.Length > 2)
+                        {
+                            ReportDayNum = Convert.ToInt32(CommandLinePart.Substring(2, 2));
+                            ReportMonth = MonthNumber(CommandLinePart.Substring(4, 3));
+                            ReportYear = Convert.ToInt32(CommandLinePart.Substring(7, 4));
+                            ReportingDay = new DateTime(ReportYear, ReportMonth, ReportDayNum);
+                        }
+                        else
+                        {
+                            ReportingDay = DateTime.Today.AddDays(-1);
+                            ReportDayNum = ReportingDay.Day;
+                            ReportMonth = ReportingDay.Month;
+                            ReportYear = ReportingDay.Year;
+                        }
                         break;
                     default:
                         // If the last part of the commandline contains "EXE" then it is the full path to the executable and we don't care
@@ -2778,8 +2877,6 @@ namespace AutoReport
         /// <param name="defects">List of Defects to calculate</param>
         /// <param name="Action">Indicates whether to total for Estimate, ToDo, or Actuals</param>
         /// <param name="DayforWeekly">Date to use for calculating Sunday/Saturday end dates</param>
-        /// <param name="RptQuarter">Which quarter to generate totals for</param>
-        /// <param name="RptYear">Which Year to generate totals for</param>
         private static decimal CreateWeeklyTotal(List<Defect> defects, ProjectTotal Action, DateTime DayforWeekly)
         {
 
@@ -2871,7 +2968,6 @@ namespace AutoReport
         /// <summary>
         /// Accepts list of all User Stories / Defects and calculates weekly totals
         /// </summary>
-        /// <param name="story">List of Defects to calculate</param>
         /// <param name="stories">List of Stories to calculate</param>
         /// <param name="Action">Indicates whether to total for Estimate, ToDo, or Actuals</param>
         /// <param name="YearForAnnual">Which Year to generate totals for</param>
@@ -3051,7 +3147,6 @@ namespace AutoReport
         /// <param name="epics">List of all Epics</param>
         /// <param name="stories">List of all Stories</param>
         /// <param name="defects">List of all Defects</param>
-        /// <param name="DateToCalc">Date to use for calculating Sunday/Saturday end dates</param>
         public static List<Epic> CreateWeeklyEpicSummary(List<Epic> epics, List<UserStory> stories, List<Defect> defects)
         {
 
@@ -3076,35 +3171,29 @@ namespace AutoReport
                 newepic.PlannedStartDate = epic.PlannedStartDate;
                 newepic.Release = epic.Release;
                 newepic.State = epic.State;
-                foreach (UserStory story in stories)
+                newepic.StateChangedDate = epic.StateChangedDate;
+                newepic.UserStories = epic.UserStories;
+                foreach (UserStory story in newepic.UserStories)
                 {
-                    // Check if the current epic is parent to the current story
-                    if (epic.Name == story.ParentEpic)
+                    foreach (Task storytask in story.Tasks)
                     {
-                        // Save the info
-                        foreach (Task storytask in story.Tasks)
+                        newepic.StoryEstimate = newepic.StoryEstimate + storytask.Estimate;
+                        newepic.StoryToDo = newepic.StoryToDo + storytask.ToDo;
+                        newepic.StoryActual = newepic.StoryActual + storytask.Actual;
+                        if (defects != null)
                         {
-                            newepic.StoryEstimate = newepic.StoryEstimate + storytask.Estimate;
-                            newepic.StoryToDo = newepic.StoryToDo + storytask.ToDo;
-                            newepic.StoryActual = newepic.StoryActual + storytask.Actual;
-                            if (defects != null)
+                            foreach (Defect defect in defects)
                             {
-                                foreach (Defect defect in defects)
+                                if (defect.ParentStory == story.FormattedID)
                                 {
-                                    if (defect.ParentStory == story.FormattedID)
+                                    foreach (Task defecttask in defect.Tasks)
                                     {
-                                        foreach (Task defecttask in defect.Tasks)
-                                        {
-                                            newepic.DefectEstimate = newepic.DefectEstimate + defecttask.Estimate;
-                                            newepic.DefectToDo = newepic.DefectToDo + defecttask.ToDo;
-                                            newepic.DefectActual = newepic.DefectActual + defecttask.Actual;
-                                        }
+                                        newepic.DefectEstimate = newepic.DefectEstimate + defecttask.Estimate;
+                                        newepic.DefectToDo = newepic.DefectToDo + defecttask.ToDo;
+                                        newepic.DefectActual = newepic.DefectActual + defecttask.Actual;
                                     }
                                 }
                             }
-                            //newepic.DefectEstimate = newepic.DefectEstimate + 0;
-                            //newepic.DefectToDo = newepic.DefectToDo + 0;
-                            //newepic.DefectActual = newepic.DefectActual + 0;
                         }
                     }
                 }
@@ -3215,6 +3304,8 @@ namespace AutoReport
                 newdefect.Release = defect.Release;
                 newdefect.State = defect.State;
                 newdefect.Tasks = defect.Tasks;
+                newdefect.Blocked = defect.Blocked;
+                newdefect.BlockedReason = defect.BlockedReason;
                 newdefect.DefectActual = TaskTotal(defect.Tasks, ProjectTotal.Actual, DateToCalc);
                 newdefect.DefectEstimate = TaskTotal(defect.Tasks, ProjectTotal.Estimate, DateToCalc);
                 newdefect.DefectToDo = TaskTotal(defect.Tasks, ProjectTotal.ToDo, DateToCalc);
@@ -3264,5 +3355,81 @@ namespace AutoReport
             return decReturn;
 
         }
+
+        /// <summary>
+        /// Calculates the Monday AFTER the supplied date.  This is when weekly reports are run.
+        /// </summary>
+        /// <param name="DateInReportWeek">Date that is at any time during the week we want to report on</param>
+        private static DateTime WeeklyReportDay(DateTime DateInReportWeek)
+        {
+
+            DateTime retDate = DateTime.Today;
+
+            switch (DateInReportWeek.DayOfWeek)
+            {
+                case DayOfWeek.Sunday:
+                    retDate = DateInReportWeek.AddDays(1);
+                    break;
+                case DayOfWeek.Monday:
+                    retDate = DateInReportWeek;
+                    break;
+                case DayOfWeek.Tuesday:
+                    retDate = DateInReportWeek.AddDays(6);
+                    break;
+                case DayOfWeek.Wednesday:
+                    retDate = DateInReportWeek.AddDays(5);
+                    break;
+                case DayOfWeek.Thursday:
+                    retDate = DateInReportWeek.AddDays(4);
+                    break;
+                case DayOfWeek.Friday:
+                    retDate = DateInReportWeek.AddDays(3);
+                    break;
+                case DayOfWeek.Saturday:
+                    retDate = DateInReportWeek.AddDays(2);
+                    break;
+            }
+
+            return retDate;
+
+        }
+
+        /// <summary>
+        /// Calculates the previous Monday BEFORE the current date.  This is when weekly reports are run.
+        /// </summary>
+        private static DateTime PrevWeeklyReportDay()
+        {
+
+            DateTime retDate = DateTime.Today;
+
+            switch (DateTime.Today.DayOfWeek)
+            {
+                case DayOfWeek.Sunday:
+                    retDate = DateTime.Today.AddDays(-6);
+                    break;
+                case DayOfWeek.Monday:
+                    retDate = DateTime.Today;
+                    break;
+                case DayOfWeek.Tuesday:
+                    retDate = DateTime.Today.AddDays(-1);
+                    break;
+                case DayOfWeek.Wednesday:
+                    retDate = DateTime.Today.AddDays(-2);
+                    break;
+                case DayOfWeek.Thursday:
+                    retDate = DateTime.Today.AddDays(-3);
+                    break;
+                case DayOfWeek.Friday:
+                    retDate = DateTime.Today.AddDays(-4);
+                    break;
+                case DayOfWeek.Saturday:
+                    retDate = DateTime.Today.AddDays(-5);
+                    break;
+            }
+
+            return retDate;
+
+        }
+
     }
 }
