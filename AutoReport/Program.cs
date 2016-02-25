@@ -1576,13 +1576,14 @@ namespace AutoReport
             reportfile.WriteLine("*********************************");
             reportfile.WriteLine("Daily Totals report for " + RptDate.ToString("ddMMMyyyy"));
             reportfile.WriteLine("*********************************\n");
-            reportfile.WriteLine("Initiative\tProject Name\tStory\tStory Hours Actual\tStory Hours To Do\tStory State\tReport Date\tCreate Date");
+            reportfile.WriteLine("Initiative\tProject Name\tStoryID\tStory\tStory Hours Actual\tStory Hours To Do\tStory State\tReport Date\tCreate Date");
             foreach (Project proj in projects)
             {
                 foreach (UserStory story in proj.UserStories)
                 {
                     strOutLine = string.Empty;
                     strOutLine = proj.Initiative + "\t" + proj.Name + "\t";
+                    strOutLine = strOutLine + story.FormattedID + "\t";
                     strOutLine = strOutLine + story.Name + "\t";
                     strOutLine = strOutLine + story.StoryActual + "\t";
                     strOutLine = strOutLine + story.StoryToDo + "\t";
@@ -1593,10 +1594,11 @@ namespace AutoReport
 
                     if (bDBConnected)
                     {
-                        SqlCommand sqlCmd = new SqlCommand("INSERT INTO dbo.DailyStats VALUES(@Initiative, @ProjectName, @Story, @HoursStoryActual, " +
+                        SqlCommand sqlCmd = new SqlCommand("INSERT INTO dbo.DailyStats VALUES(@Initiative, @ProjectName, @StoryID, @Story, @HoursStoryActual, " +
                                 "@HoursStoryToDo, @State, @ReportDate, @CreateDate)", sqlDatabase);
                         sqlCmd.Parameters.Add(new SqlParameter("Initiative", proj.Initiative));
                         sqlCmd.Parameters.Add(new SqlParameter("ProjectName", proj.Name));
+                        sqlCmd.Parameters.Add(new SqlParameter("StoryID", story.FormattedID));
                         sqlCmd.Parameters.Add(new SqlParameter("Story", story.Name));
                         sqlCmd.Parameters.Add(new SqlParameter("HoursStoryActual", story.StoryToDo));
                         sqlCmd.Parameters.Add(new SqlParameter("HoursStoryToDo", story.StoryActual));
@@ -1946,7 +1948,7 @@ namespace AutoReport
                 {
                     SqlCommand sqlCmd = new SqlCommand("INSERT INTO dbo.WeeklyStats VALUES(@Initiative, @ProjectName, @OppAmount, @Owner, @PlannedStartDate, " +
                             "@PlannedEndDate, @Expedite, @State, @CancelledReason, @HoursDefectsEstimate, @HoursDefectsToDo, @HoursDefectsActual, " +
-                            "@HoursStoryEstimate, @HoursStoryToDo, @HoursStoryActual, @ReportDate, @UpdateOwner, @ProjectUpdate)", sqlDatabase);
+                            "@HoursStoryEstimate, @HoursStoryToDo, @HoursStoryActual, @ReportDate, @CreateDate, @UpdateOwner, @ProjectUpdate)", sqlDatabase);
                     sqlCmd.Parameters.Add(new SqlParameter("Initiative", proj.Initiative));
                     sqlCmd.Parameters.Add(new SqlParameter("ProjectName", proj.Name));
                     sqlCmd.Parameters.Add(new SqlParameter("OppAmount", proj.OpportunityAmount));
@@ -1986,6 +1988,7 @@ namespace AutoReport
                     sqlCmd.Parameters.Add(new SqlParameter("HoursStoryToDo", proj.StoryToDo));
                     sqlCmd.Parameters.Add(new SqlParameter("HoursStoryActual", proj.StoryActual));
                     sqlCmd.Parameters.Add(new SqlParameter("ReportDate", System.DateTime.Now));
+                    sqlCmd.Parameters.Add(new SqlParameter("CreateDate", System.DateTime.Now));
                     sqlCmd.Parameters.Add(new SqlParameter("UpdateOwner", proj.UpdateOwner));
                     sqlCmd.Parameters.Add(new SqlParameter("ProjectUpdate", proj.StatusUpdate));
                     try
