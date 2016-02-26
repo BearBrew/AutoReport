@@ -579,7 +579,7 @@ namespace AutoReport
                     LogOutput("Operating in Daily Mode...Processing for Day " + ReportingDay.ToString("dd-MMM-yyyy"), "Main", false);
                     break;
                 case OperateMode.Monthly:
-                    LogOutput("Operating in Monthly Mode...Processing for Month " + ReportingDay.ToString("dd-MMM-yyyy"), "Main", false);
+                    LogOutput("Operating in Monthly Mode...Processing for " + ReportingDay.ToString("MMM"), "Main", false);
                     break;
                 case OperateMode.Quarterly:
                     LogOutput("Operating in Quarterly mode...Processing for Quarter Q" + ReportQuarter.ToString() + "Y" + ReportYear.ToString(), "Main", false);
@@ -1929,30 +1929,25 @@ namespace AutoReport
 
             // Write the header line
             reportfile.WriteLine("*********************************");
-            reportfile.WriteLine("Monthly report for " + RptMonth.ToString("00"));
+            reportfile.WriteLine("Monthly report for " + MonthName(RptMonth));
             reportfile.WriteLine("*********************************\r\n");
-            reportfile.WriteLine("Project Name\t\tHours");
+            reportfile.WriteLine("Initiative\tProject Name\tOpportunity Amount\tState\tPlanned Start Date\tPlanned End Date\t" +
+                "Actual End Date\tOwner\tReport Date\tCreate Date\r\n");
             foreach (Project proj in projects)
             {
-                strOutLine = proj.Name + "\r\n";
-                strOutLine = strOutLine + "   Story Estimate-> " + proj.StoryEstimate + "\t";
-                strOutLine = strOutLine + "Story ToDo-> " + proj.StoryToDo + "\t";
-                strOutLine = strOutLine + "Story Actual-> " + proj.StoryActual + "\t";
-                strOutLine = strOutLine + "Defect Estimate-> " + proj.DefectEstimate + "\t";
-                strOutLine = strOutLine + "Defect ToDo-> " + proj.DefectToDo + "\t";
-                strOutLine = strOutLine + "Defect Actual-> " + proj.DefectActual + "\r\n";
-                strOutLine = strOutLine + " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" + "\r\n";
+                strOutLine = proj.Initiative + "\t" + proj.Name + "\t" + proj.OpportunityAmount + "\t" + proj.State + "\t";
+                strOutLine = strOutLine + proj.PlannedStartDate + "\t" + proj.PlannedEndDate + "\t" + proj.ActualEndDate + "\t";
+                strOutLine = strOutLine + proj.Owner + "\t" + MonthName(RptMonth) + "\t" + DateTime.Now + "\n";
                 reportfile.WriteLine(strOutLine);
 
                 if (bDBConnected)
                 {
-                    SqlCommand sqlCmd = new SqlCommand("INSERT INTO dbo.WeeklyStats VALUES(@Initiative, @ProjectName, @OppAmount, @Owner, @PlannedStartDate, " +
-                            "@PlannedEndDate, @Expedite, @State, @CancelledReason, @HoursDefectsEstimate, @HoursDefectsToDo, @HoursDefectsActual, " +
-                            "@HoursStoryEstimate, @HoursStoryToDo, @HoursStoryActual, @ReportDate, @CreateDate, @UpdateOwner, @ProjectUpdate)", sqlDatabase);
+                    SqlCommand sqlCmd = new SqlCommand("INSERT INTO dbo.MonthlyStats VALUES(@Initiative, @ProjectName, @OppAmount, @State, " +
+                        "@PlannedStartDate, @PlannedEndDate, @ActualEndDate, @Owner, @ReportDate, @CreateDate)", sqlDatabase);
                     sqlCmd.Parameters.Add(new SqlParameter("Initiative", proj.Initiative));
                     sqlCmd.Parameters.Add(new SqlParameter("ProjectName", proj.Name));
                     sqlCmd.Parameters.Add(new SqlParameter("OppAmount", proj.OpportunityAmount));
-                    sqlCmd.Parameters.Add(new SqlParameter("Owner", proj.Owner));
+                    sqlCmd.Parameters.Add(new SqlParameter("State", proj.State));
                     // Check to make sure that PlannedStartDate is within date limits for SQL Server
                     if (proj.PlannedStartDate < Convert.ToDateTime("1/1/2010") || proj.PlannedStartDate > Convert.ToDateTime("1/1/2099"))
                     {
@@ -1969,28 +1964,20 @@ namespace AutoReport
                     }
                     else
                     {
-                        sqlCmd.Parameters.Add(new SqlParameter("PlannedEndDate", proj.PlannedStartDate));
+                        sqlCmd.Parameters.Add(new SqlParameter("PlannedEndDate", proj.PlannedEndDate));
                     }
-                    if (proj.Expedite)
+                    // Check to make sure that ActualEndDate is within date limits for SQL Server
+                    if (proj.ActualEndDate < Convert.ToDateTime("1/1/2010") || proj.ActualEndDate > Convert.ToDateTime("1/1/2099"))
                     {
-                        sqlCmd.Parameters.Add(new SqlParameter("Expedite", "Y"));
+                        sqlCmd.Parameters.Add(new SqlParameter("ActualEndDate", System.Data.SqlTypes.SqlDateTime.MinValue));
                     }
                     else
                     {
-                        sqlCmd.Parameters.Add(new SqlParameter("Expedite", "N"));
+                        sqlCmd.Parameters.Add(new SqlParameter("ActualEndDate", proj.ActualEndDate));
                     }
-                    sqlCmd.Parameters.Add(new SqlParameter("State", proj.State));
-                    sqlCmd.Parameters.Add(new SqlParameter("CancelledReason", proj.RevokedReason));
-                    sqlCmd.Parameters.Add(new SqlParameter("HoursDefectsEstimate", proj.DefectEstimate));
-                    sqlCmd.Parameters.Add(new SqlParameter("HoursDefectsToDo", proj.DefectToDo));
-                    sqlCmd.Parameters.Add(new SqlParameter("HoursDefectsActual", proj.DefectActual));
-                    sqlCmd.Parameters.Add(new SqlParameter("HoursStoryEstimate", proj.StoryEstimate));
-                    sqlCmd.Parameters.Add(new SqlParameter("HoursStoryToDo", proj.StoryToDo));
-                    sqlCmd.Parameters.Add(new SqlParameter("HoursStoryActual", proj.StoryActual));
-                    sqlCmd.Parameters.Add(new SqlParameter("ReportDate", System.DateTime.Now));
-                    sqlCmd.Parameters.Add(new SqlParameter("CreateDate", System.DateTime.Now));
-                    sqlCmd.Parameters.Add(new SqlParameter("UpdateOwner", proj.UpdateOwner));
-                    sqlCmd.Parameters.Add(new SqlParameter("ProjectUpdate", proj.StatusUpdate));
+                    sqlCmd.Parameters.Add(new SqlParameter("Owner", proj.Owner));
+                    sqlCmd.Parameters.Add(new SqlParameter("ReportDate", MonthName(RptMonth)));
+                    sqlCmd.Parameters.Add(new SqlParameter("CreateDate", DateTime.Now));
                     try
                     {
                         sqlCmd.ExecuteNonQuery();
@@ -2699,7 +2686,20 @@ namespace AutoReport
                     case "-M":
                         // Format should be -M<Number>
                         OperatingMode = OperateMode.Monthly;
-                        ReportMonth = Convert.ToInt32(CommandLinePart.Substring(2, 1));
+                        if (CommandLinePart.Length > 2)
+                        {
+                            ReportMonth = Convert.ToInt32(CommandLinePart.Substring(2, 1));
+                            ReportingDay = new DateTime(DateTime.Today.Year, ReportMonth, DateTime.Today.Day);
+                            ReportDayNum = ReportingDay.Day;
+                            ReportYear = ReportingDay.Year;
+                        }
+                        else
+                        {
+                            ReportMonth = DateTime.Today.Month;
+                            ReportingDay = new DateTime(DateTime.Today.Year, ReportMonth, DateTime.Today.Day);
+                            ReportDayNum = ReportingDay.Day;
+                            ReportYear = ReportingDay.Year;
+                        }
                         break;
                     case "-W":
                         // Format should be -W or -WddMonYYYY
@@ -3211,7 +3211,7 @@ namespace AutoReport
         /// Calculates the "Short Month" name from the supplied numeric month
         /// </summary>
         /// <param name="MonthNumber">Number for the month to return the name for (i.e. 'Jan', 'Feb', etc)</param>
-        private string MonthName(int MonthNumber)
+        private static string MonthName(int MonthNumber)
         {
 
             switch (MonthNumber)
