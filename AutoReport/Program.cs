@@ -2037,25 +2037,22 @@ namespace AutoReport
             // Write the header line
             reportfile.WriteLine("*********************************");
             reportfile.WriteLine("Quarterly report for " + ReportPeriod);
-            reportfile.WriteLine("*********************************\r\n");
-            reportfile.WriteLine("Project Name\t\tHours");
+            reportfile.WriteLine("*********************************\n");
+            reportfile.WriteLine("Initiative\tProject Name\tOpportunity Amount\tOwner\tPlanned Start Date\tPlanned End Date\tActual End Date\tState\tCancelled Reason\t" +
+                "Defect Hours Est\tDefect Hours ToDo\tDefect Hours Actual\tStory Hours Est\tStory Hours ToDo\tStory Hours Actual\tReporting Period\tCreate Date");
             foreach (Project proj in projects)
             {
-                strOutLine = proj.Name + "\r\n";
-                strOutLine = strOutLine + "   Story Estimate-> " + proj.StoryEstimate + "\t";
-                strOutLine = strOutLine + "Story ToDo-> " + proj.StoryToDo + "\t";
-                strOutLine = strOutLine + "Story Actual-> " + proj.StoryActual + "\t";
-                strOutLine = strOutLine + "Defect Estimate-> " + proj.DefectEstimate + "\t";
-                strOutLine = strOutLine + "Defect ToDo-> " + proj.DefectToDo + "\t";
-                strOutLine = strOutLine + "Defect Actual-> " + proj.DefectActual + "\r\n";
-                strOutLine = strOutLine + " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" + "\r\n";
+                strOutLine = proj.Initiative + "\t" + proj.Name + "\t" + proj.OpportunityAmount + "\t" + proj.Owner + "\t" + proj.PlannedStartDate + "\t";
+                strOutLine = strOutLine + proj.PlannedEndDate + "\t" + proj.ActualEndDate + "\t" + proj.State + "\t" + proj.RevokedReason + "\t" + proj.DefectEstimate + "\t";
+                strOutLine = strOutLine + proj.DefectToDo + "\t" + proj.DefectActual + "\t" + proj.StoryEstimate + "\t" + proj.StoryToDo + "\t" + proj.StoryActual + "\t";
+                strOutLine = strOutLine + DateTime.Now + "\t" + ReportPeriod + "\n";
                 reportfile.WriteLine(strOutLine);
 
                 if (bDBConnected)
                 {
                     SqlCommand sqlCmd = new SqlCommand("INSERT INTO dbo.QuarterStats VALUES(@Initiative, @ProjectName, @OppAmount, @Owner, @PlannedStartDate, " +
-                            "@PlannedEndDate, @Expedite, @State, @CancelledReason, @HoursDefectsEstimate, @HoursDefectsToDo, @HoursDefectsActual, " +
-                            "@HoursStoryEstimate, @HoursStoryToDo, @HoursStoryActual, @ReportDate, @UpdateOwner, @ReportingPeriod)", sqlDatabase);
+                            "@PlannedEndDate, @ActualEndDate, @State, @CancelledReason, @HoursDefectsEstimate, @HoursDefectsToDo, @HoursDefectsActual, " +
+                            "@HoursStoryEstimate, @HoursStoryToDo, @HoursStoryActual, @CreateDate, @ReportingPeriod)", sqlDatabase);
                     sqlCmd.Parameters.Add(new SqlParameter("Initiative", proj.Initiative));
                     sqlCmd.Parameters.Add(new SqlParameter("ProjectName", proj.Name));
                     sqlCmd.Parameters.Add(new SqlParameter("OppAmount", proj.OpportunityAmount));
@@ -2078,13 +2075,14 @@ namespace AutoReport
                     {
                         sqlCmd.Parameters.Add(new SqlParameter("PlannedEndDate", proj.PlannedStartDate));
                     }
-                    if (proj.Expedite)
+                    // Check to make sure that ActualEndDate is within date limits for SQL Server
+                    if (proj.ActualEndDate < Convert.ToDateTime("1/1/2010") || proj.ActualEndDate > Convert.ToDateTime("1/1/2099"))
                     {
-                        sqlCmd.Parameters.Add(new SqlParameter("Expedite", "Y"));
+                        sqlCmd.Parameters.Add(new SqlParameter("ActualEndDate", System.Data.SqlTypes.SqlDateTime.MinValue));
                     }
                     else
                     {
-                        sqlCmd.Parameters.Add(new SqlParameter("Expedite", "N"));
+                        sqlCmd.Parameters.Add(new SqlParameter("ActualEndDate", proj.ActualEndDate));
                     }
                     sqlCmd.Parameters.Add(new SqlParameter("State", proj.State));
                     sqlCmd.Parameters.Add(new SqlParameter("CancelledReason", proj.RevokedReason));
@@ -2094,8 +2092,7 @@ namespace AutoReport
                     sqlCmd.Parameters.Add(new SqlParameter("HoursStoryEstimate", proj.StoryEstimate));
                     sqlCmd.Parameters.Add(new SqlParameter("HoursStoryToDo", proj.StoryToDo));
                     sqlCmd.Parameters.Add(new SqlParameter("HoursStoryActual", proj.StoryActual));
-                    sqlCmd.Parameters.Add(new SqlParameter("ReportDate", System.DateTime.Now));
-                    sqlCmd.Parameters.Add(new SqlParameter("UpdateOwner", proj.UpdateOwner));
+                    sqlCmd.Parameters.Add(new SqlParameter("CreateDate", DateTime.Now));
                     sqlCmd.Parameters.Add(new SqlParameter("ReportingPeriod", ReportPeriod));
                     try
                     {
@@ -2675,8 +2672,17 @@ namespace AutoReport
                     case "-Q":
                         // Format should be -Q<number><Year>
                         OperatingMode = OperateMode.Quarterly;
-                        ReportQuarter = Convert.ToInt32(CommandLinePart.Substring(2, 1));
-                        ReportYear = Convert.ToInt32(CommandLinePart.Substring(3, 4));
+                        if (CommandLinePart.Length > 2)
+                        {
+                            ReportQuarter = Convert.ToInt32(CommandLinePart.Substring(2, 1));
+                            ReportYear = Convert.ToInt32(CommandLinePart.Substring(3, 4));
+                        }
+                        else
+                        {
+                            string QuarterDay = QuarterReportDay();
+                            ReportQuarter = Convert.ToInt32(QuarterDay.Substring(0, 1));
+                            ReportYear = Convert.ToInt32(QuarterDay.Substring(1, 4));
+                        }
                         break;
                     case "-A":
                         // Format should be -A<Year>
@@ -2870,6 +2876,12 @@ namespace AutoReport
         public static void UsageMessage()
         {
 
+            Console.WriteLine("AutoReport supports the following commandline switches:");
+            Console.WriteLine("\t-D or -DddMonYYYY --> Daily report.  No date specified defaults to yesterday.");
+            Console.WriteLine("\t-W or -WddMonYYYY --> Weekly report.  No date specified defaults to last week.");
+            Console.WriteLine("\t-M or -M# --> Monthly report.  No month defaults to last month.");
+            Console.WriteLine("\t-Q or -Q#YYYY --> Quarterly report.  No date specified defaults to last quarter.");
+            Console.WriteLine("\t-A or -AYYYY --> Annual report.  None specified defaults to last year.");
             Environment.Exit(0);
 
         }
@@ -3431,6 +3443,72 @@ namespace AutoReport
             }
 
             return retDate;
+
+        }
+
+        /// <summary>
+        /// Calculates the Quarter BEFORE the current date in order to determine when quarterly reports are run and then
+        /// returns a string value where the first character is the Quarter number and the next 4 characters are the year.
+        /// </summary>
+        private static string QuarterReportDay()
+        {
+
+            string QuarterPart = "";
+            string YearPart = "";
+
+            switch (DateTime.Today.Month)
+            {
+                case 1:
+                    QuarterPart = "4";
+                    YearPart = Convert.ToString(DateTime.Today.Year - 1);
+                    break;
+                case 2:
+                    QuarterPart = "4";
+                    YearPart = Convert.ToString(DateTime.Today.Year - 1);
+                    break;
+                case 3:
+                    QuarterPart = "4";
+                    YearPart = Convert.ToString(DateTime.Today.Year - 1);
+                    break;
+                case 4:
+                    QuarterPart = "1";
+                    YearPart = DateTime.Today.Year.ToString();
+                    break;
+                case 5:
+                    QuarterPart = "1";
+                    YearPart = DateTime.Today.Year.ToString();
+                    break;
+                case 6:
+                    QuarterPart = "1";
+                    YearPart = DateTime.Today.Year.ToString();
+                    break;
+                case 7:
+                    QuarterPart = "2";
+                    YearPart = DateTime.Today.Year.ToString();
+                    break;
+                case 8:
+                    QuarterPart = "2";
+                    YearPart = DateTime.Today.Year.ToString();
+                    break;
+                case 9:
+                    QuarterPart = "2";
+                    YearPart = DateTime.Today.Year.ToString();
+                    break;
+                case 10:
+                    QuarterPart = "3";
+                    YearPart = DateTime.Today.Year.ToString();
+                    break;
+                case 11:
+                    QuarterPart = "3";
+                    YearPart = DateTime.Today.Year.ToString();
+                    break;
+                case 12:
+                    QuarterPart = "3";
+                    YearPart = DateTime.Today.Year.ToString();
+                    break;
+            }
+
+            return QuarterPart + YearPart;
 
         }
 
