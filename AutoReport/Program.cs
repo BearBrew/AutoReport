@@ -39,6 +39,10 @@ namespace AutoReport
         /// </summary>
         public static List<Project> AllProjectInfo;
         /// <summary>
+        /// Configuration item for Rally URL Endpoint
+        /// </summary>
+        public static string ConfigRallyURL;
+        /// <summary>
         /// Configuration item for Rally UserID
         /// </summary>
         public static string ConfigRallyUID;
@@ -604,7 +608,7 @@ namespace AutoReport
             LogOutput("Starting connection to Rally...", "Main", true);
             try
             {
-                RallyAPI.Authenticate(ConfigRallyUID, ConfigRallyPWD);
+                RallyAPI.Authenticate(ConfigRallyUID, ConfigRallyPWD, ConfigRallyURL);
                 LogOutput("Response from RallyAPI.Authenticate: " + RallyAPI.AuthenticationState.ToString(), "Main", true);
                 if (RallyAPI.AuthenticationState.ToString() != "Authenticated")
                 {
@@ -2605,6 +2609,7 @@ namespace AutoReport
 
             try
             {
+                ConfigRallyURL = ConfigurationManager.AppSettings["RallyURL"];
                 ConfigRallyUID = ConfigurationManager.AppSettings["RallyUser"];
                 ConfigRallyPWD = ConfigurationManager.AppSettings["RallyPass"];
                 ConfigStatusEOL = ConfigurationManager.AppSettings["StatusUpdateDiv"];
