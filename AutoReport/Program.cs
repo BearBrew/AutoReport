@@ -487,7 +487,7 @@ namespace AutoReport
             /// </summary>
             public string Owner;
             /// <summary>
-            /// Release this Defect is targeted for
+            /// Release this Defect is for
             /// </summary>
             public string Release;
             /// <summary>
@@ -872,14 +872,16 @@ namespace AutoReport
             // Grab all Information for the given initiative
             LogOutput("Using RallyAPI to request information for all Initiatives...", "GetInitiativeList", true);
             LogOutput("Building Rally Request...", "GetInitiativeList", true);
-            Request rallyRequest = new Request("PortfolioItem/Initiative");
+            //Request rallyRequest = new Request("PortfolioItem/Initiative");
+            Request rallyRequest = new Request("PortfolioItem/Theme");
             // You can get the project reference for this next part by editing the main project "" and taking the URL.  We want the part after the word 'project'
             // so this is currently https://rally1.rallydev.com/#/22986814983d/detail/project/22986814983
             rallyRequest.Project = "/project/22986814983";  // This must be a reference to the project.  This project equates to "CTO Customer & Innovation Labs"
+            //rallyRequest.Project = "/custom/49666880093";  // This must be a reference to the project.  This project equates to "CTO Customer & Innovation Labs"
             rallyRequest.ProjectScopeDown = true;   // Specify that we want any projects under the main one
             rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Owner", "PlannedStartDate", "PlannedEndDate",
                 "ActualEndDate", "Description", "State", "StateChangedDate" };
-            rallyRequest.Query = new Query("FormattedID", Query.Operator.DoesNotEqual, "I68");  // We really don't want a filter, but you need a query string of some sort
+            rallyRequest.Query = new Query("FormattedID", Query.Operator.DoesNotEqual, "T9");  // We really don't want a filter, but you need a query string of some sort
             LogOutput("Running Rally Query request...", "GetInitiativeList", true);
             QueryResult rallyResult = RallyAPI.Query(rallyRequest);
             LogOutput("Looping through Query result...", "GetInitiativeList", true);
@@ -922,7 +924,8 @@ namespace AutoReport
             // Grab all Features under the given initiative
             LogOutput("Using RallyAPI to request project information for all Initiatives...", "GetProjectsForInitiative", true);
             LogOutput("Building Rally Request...", "GetProjectsForInitiative", true);
-            Request rallyRequest = new Request("PortfolioItem/Feature");
+            //Request rallyRequest = new Request("PortfolioItem/Feature");
+            Request rallyRequest = new Request("PortfolioItem/Initiative");
             rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Owner", "PlannedStartDate", "PlannedEndDate",
                 "ActualEndDate", "c_ProjectUpdate", "c_RevokedReason", "State", "ValueScore", "Description",
                 "Expedite", "c_UpdateOwner", "c_Stakeholder", "Project", "LastUpdateDate", "StateChangedDate" };
@@ -973,7 +976,8 @@ namespace AutoReport
             // Grab all Epics under the given project
             LogOutput("Using RallyAPI to request epic information for all projects...", "GetEpicsForProject", true);
             LogOutput("Building Rally Request...", "GetEpicsForProject", true);
-            Request rallyRequest = new Request("PortfolioItem/Epic");
+            //Request rallyRequest = new Request("PortfolioItem/Epic");
+            Request rallyRequest = new Request("PortfolioItem/Feature");
             rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Owner", "PlannedEndDate",
                 "PlannedStartDate","ActualEndDate", "State", "Description", "Release", "StatusChangedDate" };
             rallyRequest.Query = new Query("Parent.FormattedID", Query.Operator.Equals, ProjectID);
