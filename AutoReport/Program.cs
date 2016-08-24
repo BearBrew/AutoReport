@@ -875,13 +875,15 @@ namespace AutoReport
             //Request rallyRequest = new Request("PortfolioItem/Initiative");
             Request rallyRequest = new Request("PortfolioItem/Theme");
             // You can get the project reference for this next part by editing the main project "" and taking the URL.  We want the part after the word 'project'
-            // so this is currently https://rally1.rallydev.com/#/22986814983d/detail/project/22986814983
-            rallyRequest.Project = "/project/22986814983";  // This must be a reference to the project.  This project equates to "CTO Customer & Innovation Labs"
-            //rallyRequest.Project = "/custom/49666880093";  // This must be a reference to the project.  This project equates to "CTO Customer & Innovation Labs"
+            // so this is currently https://rally1.rallydev.com/#/22986814983d/custom/49666880093
+            //rallyRequest.Project = "https://rally1.rallydev.com/#/22986814983d/custom/49666880093";  // This must be a reference to the project.  This project equates to "CTO Customer & Innovation Labs"
+            //https://rally1.rallydev.com/slm/webservice/v2.0/project/22986814983
+            //rallyRequest.Project = "/custom/22986814983";  // This must be a reference to the project.  This project equates to "CTO Customer & Innovation Labs"
+            rallyRequest.Project = "https://rally1.rallydev.com/slm/webservice/v2.0/project/22986814983";
             rallyRequest.ProjectScopeDown = true;   // Specify that we want any projects under the main one
             rallyRequest.Fetch = new List<string>() { "Name", "FormattedID", "Owner", "PlannedStartDate", "PlannedEndDate",
                 "ActualEndDate", "Description", "State", "StateChangedDate" };
-            rallyRequest.Query = new Query("FormattedID", Query.Operator.DoesNotEqual, "T9");  // We really don't want a filter, but you need a query string of some sort
+            rallyRequest.Query = new Query("FormattedID", Query.Operator.DoesNotEqual, "T8");  // We really don't want a filter, but you need a query string of some sort
             LogOutput("Running Rally Query request...", "GetInitiativeList", true);
             QueryResult rallyResult = RallyAPI.Query(rallyRequest);
             LogOutput("Looping through Query result...", "GetInitiativeList", true);
